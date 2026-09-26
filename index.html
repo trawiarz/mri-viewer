@@ -196,7 +196,7 @@ button:disabled{opacity:.45;cursor:default}
 
 <script>
 /* ================= configuration ================= */
-const API_KEY = "";
+const API_KEY = "AIzaSyAkQRENj3szRKf_aGZH33k34PrbrvltulU";
 const DRIVE = "https://www.googleapis.com/drive/v3/files";
 const PARALLEL = 6;
 const FOLDER_MIME = "application/vnd.google-apps.folder";
@@ -305,7 +305,9 @@ async function driveFetch(url, headers, what, asBuffer) {
     }
     if (res.ok) return asBuffer ? res.arrayBuffer() : res.json();
     const body = await res.text().catch(() => "");
-    if ((res.status === 429 || res.status >= 500) && attempt === 0) { await sleep(1500 + Math.random() * 1500); continue; }
+    // Drive sometimes answers bursts of downloads with 403 (rate/abuse limits) instead of 429
+    const retryable = res.status === 429 || res.status >= 500 || (asBuffer && res.status === 403);
+    if (retryable && attempt === 0) { await sleep(1500 + Math.random() * 2500); continue; }
     throw explainDriveError(res.status, body, what);
   }
 }
@@ -458,7 +460,7 @@ function addImages(list) {
   for (const im of list) {
     let s = S.seriesByUid.get(im.uid);
     if (!s) {
-      s = { uid: im.uid, desc: im.sdesc || ("Series " + (im.snum || S.series.length + 1)), num: im.snum, images: [], wl: null, thumbDirty: true, btn: null };
+      s = { uid: im.uid, desc: im.sdesc || ("Series " + (im.snum || S.series.length + 1)), hasDesc: !!im.sdesc, num: im.snum, images: [], wl: null, thumbDirty: true, btn: null };
       S.seriesByUid.set(im.uid, s); S.series.push(s);
       S.series.sort((a, b) => (a.num - b.num) || a.desc.localeCompare(b.desc));
     }
@@ -494,6 +496,7 @@ function refreshUI() {
 }
 
 /* ================= series thumbnails ================= */
+function seriesTitle(s, sep) { return s.num && s.hasDesc ? (sep === ":" ? "Series " + s.num + ": " : s.num + " · ") + s.desc : s.desc; }
 function renderSeriesList() {
   const box = $("#series");
   S.series.forEach((s, i) => {
@@ -508,7 +511,7 @@ function renderSeriesList() {
     if (box.children[i] !== s.btn) box.insertBefore(s.btn, box.children[i] || null);
     s.btn.classList.toggle("on", s === S.cur);
     s.label.innerHTML = "";
-    s.label.append(document.createTextNode((s.num ? s.num + " · " : "") + s.desc + " "), el("span", "ct", "(" + s.images.length + ")"));
+    s.label.append(document.createTextNode(seriesTitle(s) + " "), el("span", "ct", "(" + s.images.length + ")"));
     s.btn.title = s.desc + " — " + s.images.length + " images";
     if (s.thumbDirty) { s.thumbDirty = false; drawThumb(s.thumb, s.images[Math.floor(s.images.length / 2)], s); }
   });
@@ -604,7 +607,7 @@ function updateOverlay() {
   if (!im) { tl.textContent = tr.textContent = bl.textContent = br.textContent = ""; return; }
   const wl = curWL();
   const lines = (e, arr) => { e.innerHTML = ""; arr.filter(Boolean).forEach(t => e.appendChild(el("div", null, t))); };
-  lines(tl, [(s.num ? "Series " + s.num + ": " : "") + s.desc, "Image " + (S.idx + 1) + " of " + s.images.length + (im.frame ? " (frame " + (im.frame + 1) + ")" : "")]);
+  lines(tl, [seriesTitle(s, ":"), "Image " + (S.idx + 1) + " of " + s.images.length + (im.frame ? " (frame " + (im.frame + 1) + ")" : "")]);
   lines(tr, [im.patient || S.meta.patient, im.date || S.meta.date]);
   lines(bl, ["W " + Math.round(wl.w) + " / L " + Math.round(wl.c) + (S.invert ? " · inverted" : ""), "Zoom " + Math.round(S.view.zoom * 100) + "%"]);
   let loc = "";
@@ -837,7 +840,7 @@ function buildGrid(force) {
   for (const s of list) {
     sortSeries(s);
     const si = S.series.indexOf(s);
-    if (S.gridAll) body.appendChild(el("div", "gh", (s.num ? s.num + " · " : "") + s.desc + " (" + s.images.length + ")"));
+    if (S.gridAll) body.appendChild(el("div", "gh", seriesTitle(s) + " (" + s.images.length + ")"));
     const g = el("div", "gg");
     s.images.forEach((im, i) => {
       const b = el("button", "gi");
@@ -943,7 +946,7 @@ async function start(folderId, rk) {
   document.title = (root.name ? root.name + " – " : "") + "MRI Viewer";
 
   // 2) list + download concurrently
-  const queue = [];
+  const queue = [], retryLater = [];
   let listingDone = false, wake = null;
   const notify = () => { if (wake) { const w = wake; wake = null; w(); } };
   const onFile = f => { queue.push(f); S.total++; updateStatus(); notify(); };
@@ -960,9 +963,10 @@ async function start(folderId, rk) {
       try {
         buf = await driveFetch(apiUrl("/" + encodeURIComponent(f.id), { alt: "media", supportsAllDrives: "true" }), rkHeader(f.id, f.resourceKey), "download " + f.name, true);
       } catch (e) {
+        if (e.status === 403 && /key|website|not enabled/i.test(e.title)) fatal = fatal || e;
+        if (!f.retried && !fatal) { f.retried = true; retryLater.push(f); continue; } // second, slower pass later
         addFailure(f.name, "download failed: " + (e.title || e.message) + (e.status ? " (HTTP " + e.status + ")" : ""));
         S.done++; updateStatus();
-        if (e.status === 403 && /key|referr|not enabled/i.test(e.title)) fatal = fatal || e;
         continue;
       }
       // decode one file at a time on the main thread, yielding between files
@@ -985,6 +989,11 @@ async function start(folderId, rk) {
   }
   listingDone = true; S.listing = false; notify(); updateStatus();
   await Promise.all(workers);
+  if (retryLater.length) { // retry failed downloads slowly, 2 at a time
+    await sleep(4000);
+    queue.push(...retryLater.splice(0));
+    await Promise.all([worker(), worker()]);
+  }
   await decodeChain;
   refreshUI();
   if (!S.images) {
