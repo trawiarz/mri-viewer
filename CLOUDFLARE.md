@@ -10,3 +10,9 @@ This branch holds a second copy of the viewer for Cloudflare Pages. `main` and t
 
 Cloudflare Pages project `mri-viewer`: production branch `claude/mri-viewer-cloudflare-j59a0v`, no build command, output `public`.
 Link: https://mri-viewer-7qo.pages.dev/?s=scan1
+
+## Access
+- `functions/_middleware.js` asks for a password on every request (any username). The password is the Pages secret
+  `SITE_PASSWORD` (Settings → Variables and Secrets). Without it the site answers 503 and serves nothing.
+- Not indexed: `robots.txt` disallows everything, and every response carries `X-Robots-Tag: noindex, nofollow, noarchive, nosnippet, noimageindex`.
+- The patient name from the DICOM files is not read or shown.

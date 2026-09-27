@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
-<meta name="robots" content="noindex, nofollow">
+<meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="theme-color" content="#000000">
 <title>MRI Viewer</title>
@@ -299,7 +299,7 @@ const S = {
   view: { zoom: 1, px: 0, py: 0 },
   failed: [], total: 0, done: 0, listing: true, images: 0,
   gridAll: false,
-  meta: { patient: "", date: "" },
+  meta: { date: "" },
 };
 
 /* ================= DICOM decoding ================= */
@@ -309,7 +309,6 @@ function fmtDate(d) {
   const s = String(d).replace(/\D/g, "");
   return s.length === 8 ? s.slice(0, 4) + "-" + s.slice(4, 6) + "-" + s.slice(6, 8) : String(d);
 }
-function fmtName(n) { return n ? String(n).replace(/\^+/g, " ").replace(/\s+/g, " ").trim() : ""; }
 function num(v, d) { const n = Array.isArray(v) ? parseFloat(v[0]) : parseFloat(v); return isFinite(n) ? n : d; }
 
 // Pull encapsulated JPEG frames straight out of the file (used when daikon can't decode baseline JPEG).
@@ -384,7 +383,7 @@ async function decodeFile(buf, name) {
     aspect: (psr > 0 && psc > 0) ? psr / psc : 1, // height of a pixel relative to its width
     mono1: photo === "MONOCHROME1",
     wc: num(image.getWindowCenter(), null), ww: num(image.getWindowWidth(), null),
-    patient: fmtName(image.getPatientName()), date: fmtDate(image.getStudyDate()),
+    date: fmtDate(image.getStudyDate()),
     planar: spp === 3 && image.getPlanarConfig && image.getPlanarConfig() === 1,
   };
   const ts = String(image.getTransferSyntax() || "");
@@ -425,7 +424,6 @@ function addImages(list) {
     s.images.push(im);
     s.sortPending = true;
     s.thumbDirty = true;
-    if (!S.meta.patient && im.patient) S.meta.patient = im.patient;
     if (!S.meta.date && im.date) S.meta.date = im.date;
     S.images++;
   }
@@ -566,7 +564,7 @@ function updateOverlay() {
   const wl = curWL();
   const lines = (e, arr) => { e.innerHTML = ""; arr.filter(Boolean).forEach(t => e.appendChild(el("div", null, t))); };
   lines(tl, [seriesTitle(s, ":"), "Image " + (S.idx + 1) + " of " + s.images.length + (im.frame ? " (frame " + (im.frame + 1) + ")" : "")]);
-  lines(tr, [im.patient || S.meta.patient, im.date || S.meta.date]);
+  lines(tr, [im.date || S.meta.date]);
   lines(bl, ["W " + Math.round(wl.w) + " / L " + Math.round(wl.c) + (S.invert ? " · inverted" : ""), "Zoom " + Math.round(S.view.zoom * 100) + "%"]);
   let loc = "";
   if (im.sloc != null) loc = "Slice " + im.sloc.toFixed(1) + " mm";
@@ -832,7 +830,7 @@ function updateStatus() {
   const ns = S.series.length;
   if (S.listing) t = "Finding files… " + S.total + " found" + (S.images ? " · " + S.images + " images shown" : "");
   else if (S.done < S.total) t = "Loading " + S.done + " / " + S.total + " files · " + S.images + " images, " + ns + " series";
-  else t = S.images + " images · " + ns + " series" + (S.meta.patient ? " · " + S.meta.patient : "");
+  else t = S.images + " images · " + ns + " series";
   $("#status").textContent = t;
   const pct = S.total ? (S.done / S.total) * 100 : 0;
   $("#bar").style.display = (!S.listing && S.done >= S.total) ? "none" : "";
