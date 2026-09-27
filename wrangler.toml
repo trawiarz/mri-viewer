@@ -1,0 +1,12 @@
+name = "mri-viewer"
+pages_build_output_dir = "public"
+compatibility_date = "2025-09-01"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "mri-viewer"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "mri-viewer"
+database_id = "8120acc0-cfa3-4597-a25a-1c53acf888bf"

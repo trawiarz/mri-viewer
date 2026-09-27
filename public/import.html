@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Preparing scan – MRI Viewer</title>
+<style>
+  body{margin:0;background:#111;color:#ddd;font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}
+  .card{max-width:520px;width:100%;background:#1b1d22;border:1px solid #2c2f36;border-radius:12px;padding:22px}
+  h1{font-size:19px;margin:0 0 8px}
+  #bar{height:8px;background:#2c2f36;border-radius:4px;overflow:hidden;margin:14px 0}
+  #bar i{display:block;height:100%;width:0;background:#4a90e2;transition:width .2s}
+  #err{color:#ff8a80;white-space:pre-wrap;font-size:13px;margin-top:10px;max-height:40vh;overflow:auto}
+  button{background:#4a90e2;color:#fff;border:0;border-radius:8px;padding:9px 16px;font:inherit;cursor:pointer;margin-top:10px}
+  a{color:#8ab4f8}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Preparing the scan</h1>
+  <div id="msg">Checking…</div>
+  <div id="bar"><i></i></div>
+  <div id="err"></div>
+  <button id="retry" hidden>Try again</button>
+</div>
+<script>
+const scan = new URLSearchParams(location.search).get("s") || "scan1";
+const api = "api/import?s=" + encodeURIComponent(scan);
+const $ = s => document.querySelector(s);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const viewer = () => location.replace("./?s=" + encodeURIComponent(scan));
+
+async function post(q) {
+  for (let a = 0; ; a++) {
+    try {
+      const r = await fetch(api + q, { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok || r.status === 409) return { ok: r.ok, status: r.status, j };
+      if (a >= 4) return { ok: false, status: r.status, j };
+    } catch (e) { if (a >= 4) return { ok: false, status: 0, j: { error: String(e) } }; }
+    await sleep(1500 * 2 ** a);
+  }
+}
+
+async function run() {
+  $("#retry").hidden = true; $("#err").textContent = "";
+  const res = await fetch(api, { cache: "no-store" });
+  const st = await res.json().catch(() => ({}));
+  if (!res.ok) { $("#msg").textContent = "Scan \"" + scan + "\" not found."; return; }
+  if (st.complete) { $("#msg").textContent = "Ready – opening the viewer…"; return location.replace("./?s=" + encodeURIComponent(scan) + "&noimport=1"); }
+  const total = st.total; let done = 0, next = 0; const errors = [];
+  const show = () => { $("#msg").textContent = "Copying images to this site (first visit only): " + done + " / " + total; $("#bar i").style.width = (done / total * 100) + "%"; };
+  show();
+  async function worker() {
+    while (next < total) {
+      const i = next++;
+      const r = await post("&i=" + i);
+      if (!r.ok) errors.push((r.j.path || "#" + i) + ": " + (r.j.error || "HTTP " + r.status));
+      done++; show();
+    }
+  }
+  await Promise.all([worker(), worker(), worker(), worker()]);
+  if (errors.length) {
+    $("#err").textContent = errors.length + " file(s) failed:\n" + errors.join("\n");
+    $("#retry").hidden = false; return;
+  }
+  const f = await post("&finish=1");
+  if (!f.ok && !(f.j && f.j.complete)) {
+    $("#err").textContent = "Could not finish: " + JSON.stringify(f.j);
+    $("#retry").hidden = false; return;
+  }
+  $("#msg").textContent = "Done – opening the viewer…"; $("#bar i").style.width = "100%";
+  await sleep(600); viewer();
+}
+$("#retry").onclick = () => run().catch(e => { $("#err").textContent = String(e); $("#retry").hidden = false; });
+run().catch(e => { $("#err").textContent = String(e); $("#retry").hidden = false; });
+</script>
+</body>
+</html>
