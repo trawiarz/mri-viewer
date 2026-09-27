@@ -9,4 +9,4 @@ This branch holds a second copy of the viewer for Cloudflare Pages. `main` and t
 - `wrangler.toml` – Pages config: output dir `public`, R2 + D1 bindings.
 
 Cloudflare Pages project `mri-viewer`: production branch `claude/mri-viewer-cloudflare-j59a0v`, no build command, output `public`.
-Link: https://mri-viewer.pages.dev/?s=scan1
+Link: https://mri-viewer-7qo.pages.dev/?s=scan1
