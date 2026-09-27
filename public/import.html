@@ -47,20 +47,23 @@ async function run() {
   $("#retry").hidden = true; $("#err").textContent = "";
   const res = await fetch(api, { cache: "no-store" });
   const st = await res.json().catch(() => ({}));
-  if (!res.ok) { $("#msg").textContent = "Scan \"" + scan + "\" not found."; return; }
+  if (res.status === 404) { $("#msg").textContent = "Scan \"" + scan + "\" not found."; return; }
+  if (!res.ok) { $("#msg").textContent = "Could not check the scan (HTTP " + res.status + ")."; $("#retry").hidden = false; return; }
   if (st.complete) { $("#msg").textContent = "Ready – opening the viewer…"; return location.replace("./?s=" + encodeURIComponent(scan) + "&noimport=1"); }
-  const total = st.total; let done = 0, next = 0; const errors = [];
+  const total = st.total; let done = 0, next = 0, finished = false; const errors = [];
   const show = () => { $("#msg").textContent = "Copying images to this site (first visit only): " + done + " / " + total; $("#bar i").style.width = (done / total * 100) + "%"; };
   show();
   async function worker() {
-    while (next < total) {
+    while (next < total && !finished) {
       const i = next++;
       const r = await post("&i=" + i);
+      if (r.status === 409 && r.j.complete) { finished = true; break; } // another visitor finished the import
       if (!r.ok) errors.push((r.j.path || "#" + i) + ": " + (r.j.error || "HTTP " + r.status));
       done++; show();
     }
   }
   await Promise.all([worker(), worker(), worker(), worker()]);
+  if (finished) { $("#msg").textContent = "Ready – opening the viewer…"; return viewer(); }
   if (errors.length) {
     $("#err").textContent = errors.length + " file(s) failed:\n" + errors.join("\n");
     $("#retry").hidden = false; return;
