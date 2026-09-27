@@ -16,3 +16,8 @@ Link: https://mri-viewer-7qo.pages.dev/?s=scan1
   `SITE_PASSWORD` (Settings → Variables and Secrets). Without it the site answers 503 and serves nothing.
 - Not indexed: `robots.txt` disallows everything, and every response carries `X-Robots-Tag: noindex, nofollow, noarchive, nosnippet, noimageindex`.
 - The patient name from the DICOM files is not read or shown.
+
+## Deploying
+Cloudflare Pages builds automatically on every push to `claude/mri-viewer-cloudflare-j59a0v` (Git integration).
+"Retry deployment" in the dashboard rebuilds the same old commit; push a new commit to deploy the latest code.
+Set the `SITE_PASSWORD` secret before the first deploy that contains `functions/_middleware.js`.
