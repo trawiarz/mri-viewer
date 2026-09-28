@@ -62,8 +62,11 @@ button:disabled{opacity:.45;cursor:default}
   padding:6px 8px;max-width:60%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ov div{overflow:hidden;text-overflow:ellipsis}
 .ovd{font-size:15px;font-weight:700}
-#ovT{top:2px;left:50%;transform:translateX(-50%)}#ovB{bottom:2px;left:50%;transform:translateX(-50%)}#ovL{left:4px;top:50%;transform:translateY(-50%)}#ovR{right:4px;top:50%;transform:translateY(-50%)}
-#ovTL{top:0;left:0}#ovTR{top:0;right:0;text-align:right}#ovBL{bottom:0;left:0}#ovBR{bottom:0;right:0;text-align:right}
+.pan{position:absolute;top:0;bottom:0;left:0;width:100%;pointer-events:none}
+#pan1{display:none}
+#stage.dual #pan0{width:50%}#stage.dual #pan1{display:block;left:50%;width:50%}
+.pan .t{top:2px;left:50%;transform:translateX(-50%)}.pan .b{bottom:2px;left:50%;transform:translateX(-50%)}.pan .l{left:4px;top:50%;transform:translateY(-50%)}.pan .r{right:4px;top:50%;transform:translateY(-50%)}
+.pan .tl{top:0;left:0}.pan .tr{top:0;right:0;text-align:right}.pan .bl{bottom:0;left:0}.pan .br{bottom:0;right:0;text-align:right}
 #msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:20px;text-align:center}
 #msg .box{max-width:460px;background:rgba(22,24,28,.95);border:1px solid var(--line);border-radius:12px;padding:18px}
 #msg h2{margin:0 0 8px;font-size:17px}
@@ -154,9 +157,8 @@ button:disabled{opacity:.45;cursor:default}
   <div id="series"></div>
   <div id="stage">
     <canvas id="cv"></canvas>
-    <div class="ov" id="ovTL"></div><div class="ov" id="ovTR"></div>
-    <div class="ov" id="ovBL"></div><div class="ov" id="ovBR"></div>
-    <div class="ov ovd" id="ovT"></div><div class="ov ovd" id="ovB"></div><div class="ov ovd" id="ovL"></div><div class="ov ovd" id="ovR"></div>
+    <div class="pan" id="pan0"><div class="ov tl"></div><div class="ov tr"></div><div class="ov bl"></div><div class="ov br"></div><div class="ov ovd t"></div><div class="ov ovd b"></div><div class="ov ovd l"></div><div class="ov ovd r"></div></div>
+    <div class="pan" id="pan1"><div class="ov tl"></div><div class="ov tr"></div><div class="ov bl"></div><div class="ov br"></div><div class="ov ovd t"></div><div class="ov ovd b"></div><div class="ov ovd l"></div><div class="ov ovd r"></div></div>
     <div id="msg"></div>
   </div>
   <div id="sliderWrap">
@@ -174,6 +176,7 @@ button:disabled{opacity:.45;cursor:default}
     <button id="playBtn" title="Play / pause (Space)">Play</button>
     <button id="invBtn" title="Invert (I)">Invert</button>
     <button id="resetBtn" title="Reset view and contrast (R, double-click)">Reset</button>
+    <button id="dualBtn" title="Two panels: this image and the next one (2)">2 panels</button>
     <button id="gridBtn" title="All images (G)">All images</button>
     <button id="shareBtn" title="Share link to this viewer">Share link</button>
   </div>
@@ -298,7 +301,7 @@ const S = {
   scan: null,
   series: [], seriesByUid: new Map(),
   cur: null, idx: 0, userNav: false,
-  tool: "scroll", invert: false, playing: false, playT: null,
+  tool: "scroll", invert: false, dual: false, playing: false, playT: null,
   view: { zoom: 1, px: 0, py: 0 },
   failed: [], total: 0, done: 0, listing: true, images: 0,
   gridAll: false,
@@ -393,6 +396,7 @@ async function decodeFile(buf, name) {
     sloc: num(image.getSliceLocation(), null),
     pos: Array.isArray(pos) ? pos.map(Number) : null,
     aspect: (psr > 0 && psc > 0) ? psr / psc : 1, // height of a pixel relative to its width
+    mmx: ps && psc > 0 ? psc : null, // mm per pixel across (for the ruler)
     mono1: photo === "MONOCHROME1",
     wc: num(image.getWindowCenter(), null), ww: num(image.getWindowWidth(), null),
     date: fmtDate(image.getStudyDate()),
@@ -545,15 +549,55 @@ function imageCanvas(im, wc, ww, invert, cache) {
 const cv = $("#cv");
 function curImage() { return S.cur ? S.cur.images[S.idx] : null; }
 function curWL() { const im = curImage(); return (S.cur && S.cur.wl) || (im ? defaultWL(im) : { c: 0, w: 1 }); }
-function geometry() {
-  const im = curImage(); if (!im) return null;
+function panels() { // canvas rectangles (device px) of the visible panels
   const W = cv.width, H = cv.height;
+  return S.dual ? [{ x: 0, y: 0, w: Math.floor(W / 2), h: H }, { x: Math.ceil(W / 2), y: 0, w: W - Math.ceil(W / 2), h: H }] : [{ x: 0, y: 0, w: W, h: H }];
+}
+function geometry(im, p) {
+  im = im || curImage(); if (!im) return null;
+  p = p || panels()[0];
   const iw = im.cols, ih = im.rows * im.aspect;
-  const fit = Math.min(W / iw, H / ih) * 0.98;
+  const fit = Math.min(p.w / iw, p.h / ih) * 0.98;
   const sc = fit * S.view.zoom;
   const w = iw * sc, h = ih * sc;
   const dpr = window.devicePixelRatio || 1;
-  return { x: (W - w) / 2 + S.view.px * dpr, y: (H - h) / 2 + S.view.py * dpr, w, h, fit };
+  return { x: p.x + (p.w - w) / 2 + S.view.px * dpr, y: p.y + (p.h - h) / 2 + S.view.py * dpr, w, h, fit };
+}
+function panelImages() { // images shown in each panel: current, and the next one in two-panel mode
+  if (!S.cur) return [];
+  const a = S.cur.images;
+  return S.dual ? [a[S.idx], a[S.idx + 1] || null] : [a[S.idx]];
+}
+// Centimetre rulers along the right and bottom edges of a panel, like the CD viewer.
+function drawRulers(ctx, im, g, p, dpr) {
+  if (!im.mmx) return;
+  const pxPerMm = g.w / im.cols / im.mmx; // screen px per mm (pixel aspect already in g)
+  const pick = lim => [10, 5, 2, 1].find(cm => cm * 10 * pxPerMm <= lim) || 0;
+  ctx.save();
+  ctx.strokeStyle = ctx.fillStyle = "#fff";
+  ctx.lineWidth = Math.max(1, dpr);
+  ctx.shadowColor = "#000"; ctx.shadowBlur = 3 * dpr;
+  ctx.font = (10 * dpr) + "px system-ui, sans-serif";
+  const ruler = (cm, vertical) => {
+    const len = cm * 10 * pxPerMm;
+    const x0 = vertical ? p.x + p.w - 34 * dpr : p.x + (p.w - len) / 2;
+    const y0 = vertical ? p.y + (p.h - len) / 2 : p.y + p.h - 50 * dpr;
+    ctx.beginPath();
+    if (vertical) { ctx.moveTo(x0, y0); ctx.lineTo(x0, y0 + len); } else { ctx.moveTo(x0, y0); ctx.lineTo(x0 + len, y0); }
+    for (let i = 0; i <= cm; i++) {
+      const d = i * 10 * pxPerMm, t = (i % 5 === 0 ? 9 : 5) * dpr;
+      if (vertical) { ctx.moveTo(x0, y0 + d); ctx.lineTo(x0 - t, y0 + d); } else { ctx.moveTo(x0 + d, y0); ctx.lineTo(x0 + d, y0 - t); }
+      if (i % 5 === 0 && cm >= 5) {
+        if (vertical) ctx.fillText(String(i), x0 + 3 * dpr, y0 + d + 3 * dpr); else ctx.fillText(String(i), x0 + d - 3 * dpr, y0 + 12 * dpr);
+      }
+    }
+    ctx.stroke();
+    if (vertical) ctx.fillText("cm", x0 - 6 * dpr, y0 + len + 24 * dpr); else ctx.fillText("cm", x0 + len + 6 * dpr, y0 + 4 * dpr);
+  };
+  const v = pick(p.h * 0.6), h = pick(p.w * 0.5);
+  if (v) ruler(v, true);
+  if (h) ruler(h, false);
+  ctx.restore();
 }
 let drawQueued = false;
 function draw() { if (drawQueued) return; drawQueued = true; requestAnimationFrame(() => { drawQueued = false; drawNow(); }); }
@@ -564,14 +608,21 @@ function drawNow() {
   if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
   const ctx = cv.getContext("2d");
   ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
-  const im = curImage();
-  if (!im) { updateOverlay(); return; }
+  const ims = panelImages();
+  if (!ims[0]) { updateOverlay(); return; }
   const wl = curWL();
-  const src = imageCanvas(im, wl.c, wl.w, S.invert, true);
-  const g = geometry();
-  ctx.imageSmoothingEnabled = g.w / im.cols < 3;
-  ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(src, g.x, g.y, g.w, g.h);
+  panels().forEach((p, i) => {
+    const im = ims[i]; if (!im) return;
+    const src = imageCanvas(im, wl.c, wl.w, S.invert, i === 0);
+    const g = geometry(im, p);
+    ctx.save(); ctx.beginPath(); ctx.rect(p.x, p.y, p.w, p.h); ctx.clip();
+    ctx.imageSmoothingEnabled = g.w / im.cols < 3;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(src, g.x, g.y, g.w, g.h);
+    drawRulers(ctx, im, g, p, dpr);
+    ctx.restore();
+  });
+  if (S.dual) { ctx.fillStyle = "#e0413b"; ctx.fillRect(Math.floor(W / 2) - Math.max(1, dpr) / 2, 0, Math.max(1, dpr), H); }
   updateOverlay();
 }
 // Edge labels from Image Orientation (Patient): patient axes are x = Left, y = Posterior, z = Head.
@@ -584,23 +635,27 @@ function orientLabels(d) {
   const row = d.slice(0, 3), col = d.slice(3, 6), neg = v => v.map(x => -x);
   return { right: name(row), left: name(neg(row)), bottom: name(col), top: name(neg(col)) };
 }
-function updateOverlay() {
-  const im = curImage(), s = S.cur;
-  const tl = $("#ovTL"), tr = $("#ovTR"), bl = $("#ovBL"), br = $("#ovBR");
-  const o = im && im.orient;
-  $("#ovT").textContent = o ? o.top : ""; $("#ovB").textContent = o ? o.bottom : "";
-  $("#ovL").textContent = o ? o.left : ""; $("#ovR").textContent = o ? o.right : "";
-  if (!im) { tl.textContent = tr.textContent = bl.textContent = br.textContent = ""; return; }
-  const wl = curWL();
+function fillPanel(pan, im, n) {
+  const q = c => pan.querySelector("." + c);
   const lines = (e, arr) => { e.innerHTML = ""; arr.filter(Boolean).forEach(t => e.appendChild(el("div", null, t))); };
-  lines(tl, [im.study, seriesTitle(s, ":"), "Image " + (S.idx + 1) + " of " + s.images.length + (im.frame ? " (frame " + (im.frame + 1) + ")" : ""),
+  const o = im && im.orient;
+  q("t").textContent = o ? o.top : ""; q("b").textContent = o ? o.bottom : "";
+  q("l").textContent = o ? o.left : ""; q("r").textContent = o ? o.right : "";
+  if (!im) { ["tl", "tr", "bl", "br"].forEach(c => q(c).textContent = ""); return; }
+  const s = S.cur, wl = curWL();
+  lines(q("tl"), [im.study, seriesTitle(s, ":"), "Image " + (n + 1) + " of " + s.images.length + (im.frame ? " (frame " + (im.frame + 1) + ")" : ""),
     im.inst ? "Instance " + im.inst : "", im.thick ? "Thickness " + im.thick.toFixed(1) + " mm" : ""]);
-  lines(tr, [((im.date || S.meta.date) + " " + (im.stime || "")).trim(), im.atime ? "Acquired " + im.atime : ""]);
-  lines(bl, ["W " + Math.round(wl.w) + " / L " + Math.round(wl.c) + (S.invert ? " · inverted" : ""), "Zoom " + Math.round(S.view.zoom * 100) + "%"]);
+  lines(q("tr"), [((im.date || S.meta.date) + " " + (im.stime || "")).trim(), im.atime ? "Acquired " + im.atime : ""]);
+  lines(q("bl"), ["W " + Math.round(wl.w) + " / L " + Math.round(wl.c) + (S.invert ? " · inverted" : ""), "Zoom " + Math.round(S.view.zoom * 100) + "%"]);
   let loc = "";
   if (im.sloc != null) loc = "Slice " + im.sloc.toFixed(1) + " mm";
   else if (im.pos && im.pos.length === 3) loc = "Pos " + im.pos.map(v => v.toFixed(1)).join(", ");
-  lines(br, [loc, im.cols + " × " + im.rows]);
+  lines(q("br"), [loc, im.cols + " × " + im.rows]);
+}
+function updateOverlay() {
+  const ims = panelImages();
+  fillPanel($("#pan0"), ims[0] || null, S.idx);
+  fillPanel($("#pan1"), S.dual ? ims[1] || null : null, S.idx + 1);
 }
 
 /* ================= navigation ================= */
@@ -664,6 +719,8 @@ $("#playBtn").onclick = togglePlay;
 $("#invBtn").onclick = toggleInvert;
 $("#resetBtn").onclick = resetView;
 $("#gridBtn").onclick = () => openGrid();
+function toggleDual() { S.dual = !S.dual; $("#stage").classList.toggle("dual", S.dual); $("#dualBtn").classList.toggle("on", S.dual); draw(); }
+$("#dualBtn").onclick = toggleDual;
 $("#shareBtn").onclick = async () => {
   const url = viewerLink(S.scan);
   if (navigator.share && matchMedia("(pointer:coarse)").matches) {
@@ -746,7 +803,8 @@ stage.addEventListener("pointercancel", endPtr);
 function zoomAt(z, cx, cy, from) {
   z = clamp(z, 0.25, 20);
   const r = stage.getBoundingClientRect();
-  const ox = cx - r.left - r.width / 2, oy = cy - r.top - r.height / 2; // point relative to stage centre
+  const pw = S.dual ? r.width / 2 : r.width, px0 = S.dual && cx - r.left > pw ? pw : 0;
+  const ox = cx - r.left - px0 - pw / 2, oy = cy - r.top - r.height / 2; // point relative to its panel's centre
   // keep the image point under (cx,cy) fixed
   const f = z / from.zoom;
   S.view.zoom = z;
@@ -788,6 +846,7 @@ document.addEventListener("keydown", e => {
   else if (k === "i" || k === "I") toggleInvert();
   else if (k === "r" || k === "R") resetView();
   else if (k === "g" || k === "G") gridOpen ? closeGrid() : openGrid();
+  else if (k === "2") toggleDual();
   else if (k === "Escape") { closeGrid(); $("#failSheet").classList.add("hidden"); }
   else handled = false;
   if (handled) { e.preventDefault(); if (gridOpen && k.startsWith("Arrow")) buildGrid(); }
