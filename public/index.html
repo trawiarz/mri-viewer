@@ -61,6 +61,8 @@ button:disabled{opacity:.45;cursor:default}
 .ov{position:absolute;pointer-events:none;font-size:12px;line-height:1.35;color:#fff;text-shadow:0 0 3px #000,0 0 2px #000;
   padding:6px 8px;max-width:60%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ov div{overflow:hidden;text-overflow:ellipsis}
+.ovd{font-size:15px;font-weight:700}
+#ovT{top:2px;left:50%;transform:translateX(-50%)}#ovB{bottom:2px;left:50%;transform:translateX(-50%)}#ovL{left:4px;top:50%;transform:translateY(-50%)}#ovR{right:4px;top:50%;transform:translateY(-50%)}
 #ovTL{top:0;left:0}#ovTR{top:0;right:0;text-align:right}#ovBL{bottom:0;left:0}#ovBR{bottom:0;right:0;text-align:right}
 #msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:20px;text-align:center}
 #msg .box{max-width:460px;background:rgba(22,24,28,.95);border:1px solid var(--line);border-radius:12px;padding:18px}
@@ -154,6 +156,7 @@ button:disabled{opacity:.45;cursor:default}
     <canvas id="cv"></canvas>
     <div class="ov" id="ovTL"></div><div class="ov" id="ovTR"></div>
     <div class="ov" id="ovBL"></div><div class="ov" id="ovBR"></div>
+    <div class="ov ovd" id="ovT"></div><div class="ov ovd" id="ovB"></div><div class="ov ovd" id="ovL"></div><div class="ov ovd" id="ovR"></div>
     <div id="msg"></div>
   </div>
   <div id="sliderWrap">
@@ -384,6 +387,7 @@ async function decodeFile(buf, name) {
     mono1: photo === "MONOCHROME1",
     wc: num(image.getWindowCenter(), null), ww: num(image.getWindowWidth(), null),
     date: fmtDate(image.getStudyDate()),
+    orient: orientLabels(image.getImageDirections && image.getImageDirections()),
     planar: spp === 3 && image.getPlanarConfig && image.getPlanarConfig() === 1,
   };
   const ts = String(image.getTransferSyntax() || "");
@@ -557,9 +561,22 @@ function drawNow() {
   ctx.drawImage(src, g.x, g.y, g.w, g.h);
   updateOverlay();
 }
+// Edge labels from Image Orientation (Patient): patient axes are x = Left, y = Posterior, z = Head.
+function orientLabels(d) {
+  d = Array.isArray(d) ? d.map(Number) : [];
+  if (d.length < 6 || d.some(v => !isFinite(v))) return null;
+  const name = v => [[v[0], "L", "R"], [v[1], "P", "A"], [v[2], "H", "F"]]
+    .filter(c => Math.abs(c[0]) > 0.3).sort((a, b) => Math.abs(b[0]) - Math.abs(a[0]))
+    .map(c => c[0] > 0 ? c[1] : c[2]).join("");
+  const row = d.slice(0, 3), col = d.slice(3, 6), neg = v => v.map(x => -x);
+  return { right: name(row), left: name(neg(row)), bottom: name(col), top: name(neg(col)) };
+}
 function updateOverlay() {
   const im = curImage(), s = S.cur;
   const tl = $("#ovTL"), tr = $("#ovTR"), bl = $("#ovBL"), br = $("#ovBR");
+  const o = im && im.orient;
+  $("#ovT").textContent = o ? o.top : ""; $("#ovB").textContent = o ? o.bottom : "";
+  $("#ovL").textContent = o ? o.left : ""; $("#ovR").textContent = o ? o.right : "";
   if (!im) { tl.textContent = tr.textContent = bl.textContent = br.textContent = ""; return; }
   const wl = curWL();
   const lines = (e, arr) => { e.innerHTML = ""; arr.filter(Boolean).forEach(t => e.appendChild(el("div", null, t))); };
