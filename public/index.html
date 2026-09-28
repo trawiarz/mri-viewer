@@ -312,6 +312,15 @@ function fmtDate(d) {
   const s = String(d).replace(/\D/g, "");
   return s.length === 8 ? s.slice(0, 4) + "-" + s.slice(4, 6) + "-" + s.slice(6, 8) : String(d);
 }
+function fmtTime(t) {
+  if (!t) return "";
+  if (t instanceof Date && !isNaN(t)) return [t.getHours(), t.getMinutes(), t.getSeconds()].map(n => String(n).padStart(2, "0")).join(":");
+  const s = String(t).replace(/[^\d.]/g, "").split(".")[0];
+  return s.length >= 4 ? s.slice(0, 2) + ":" + s.slice(2, 4) + (s.length >= 6 ? ":" + s.slice(4, 6) : "") : "";
+}
+function tagText(image, g, e) {
+  try { const v = daikon.Image.getSingleValueSafely(image.getTag(g, e), 0); return v == null ? "" : v; } catch (err) { return ""; }
+}
 function num(v, d) { const n = Array.isArray(v) ? parseFloat(v[0]) : parseFloat(v); return isFinite(n) ? n : d; }
 
 // Pull encapsulated JPEG frames straight out of the file (used when daikon can't decode baseline JPEG).
@@ -387,6 +396,10 @@ async function decodeFile(buf, name) {
     mono1: photo === "MONOCHROME1",
     wc: num(image.getWindowCenter(), null), ww: num(image.getWindowWidth(), null),
     date: fmtDate(image.getStudyDate()),
+    stime: fmtTime(tagText(image, 0x0008, 0x0030)),
+    atime: fmtTime(tagText(image, 0x0008, 0x0032)),
+    study: String(tagText(image, 0x0008, 0x1030)).trim(),
+    thick: num(image.getSliceThickness(), null),
     orient: orientLabels(image.getImageDirections && image.getImageDirections()),
     planar: spp === 3 && image.getPlanarConfig && image.getPlanarConfig() === 1,
   };
@@ -580,8 +593,9 @@ function updateOverlay() {
   if (!im) { tl.textContent = tr.textContent = bl.textContent = br.textContent = ""; return; }
   const wl = curWL();
   const lines = (e, arr) => { e.innerHTML = ""; arr.filter(Boolean).forEach(t => e.appendChild(el("div", null, t))); };
-  lines(tl, [seriesTitle(s, ":"), "Image " + (S.idx + 1) + " of " + s.images.length + (im.frame ? " (frame " + (im.frame + 1) + ")" : "")]);
-  lines(tr, [im.date || S.meta.date]);
+  lines(tl, [im.study, seriesTitle(s, ":"), "Image " + (S.idx + 1) + " of " + s.images.length + (im.frame ? " (frame " + (im.frame + 1) + ")" : ""),
+    im.inst ? "Instance " + im.inst : "", im.thick ? "Thickness " + im.thick.toFixed(1) + " mm" : ""]);
+  lines(tr, [((im.date || S.meta.date) + " " + (im.stime || "")).trim(), im.atime ? "Acquired " + im.atime : ""]);
   lines(bl, ["W " + Math.round(wl.w) + " / L " + Math.round(wl.c) + (S.invert ? " · inverted" : ""), "Zoom " + Math.round(S.view.zoom * 100) + "%"]);
   let loc = "";
   if (im.sloc != null) loc = "Slice " + im.sloc.toFixed(1) + " mm";
