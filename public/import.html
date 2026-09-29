@@ -109,17 +109,18 @@ async function isoImport(st) {
       if (e.dir) {
         if (SKIP_DIRS.includes(e.name.trim().toLowerCase())) continue;
         dirs++; $("#msg").textContent = "Reading the CD… " + dirs + " folders, " + files.length + " files";
-        const sub = await iso("dir", { lba: e.lba, size: e.size, joliet: top.joliet });
+        const sub = await iso("dir", top.udf ? { udf: top.udf, ref: e.ref } : { lba: e.lba, size: e.size, joliet: top.joliet });
         queue.push({ entries: sub.entries, path: path.concat(e.name) });
       } else {
         const e2 = extOf(e.name);
-        if (e.name.toUpperCase() === "DICOMDIR" || !e.size) continue;
+        if (e.name.toUpperCase() === "DICOMDIR" || (!top.udf && !e.size)) continue;
         if (["dcm", "dicom", "ima"].includes(e2) || (!e2 && !SKIP_EXT.includes(e2))) files.push(Object.assign({ path: path.concat(e.name).map(x => x.replace(/[^\w.\- ]+/g, "_")).join("/") }, e));
       }
     }
   }
   if (!files.length) throw new Error("No scan images found on this CD (" + dirs + " folders looked at).");
-  let info = {}; try { info = await iso("peek", { lba: files[0].lba, size: files[0].size }); } catch (e) {}
+  const where = f => top.udf ? { udf: top.udf, ref: f.ref } : { lba: f.lba, size: f.size };
+  let info = {}; try { info = await iso("peek", where(files[0])); } catch (e) {}
   const MOD = { CT: "ct", MR: "mri", CR: "xray", DX: "xray", DR: "xray", RG: "xray", XA: "xray", RF: "xray", MG: "xray", PX: "xray" };
   const type = MOD[(info.modality || "").toUpperCase()] || st.type;
   const date = st.date || (/^\d{8}$/.test(info.date || "") ? info.date.slice(0, 4) + "-" + info.date.slice(4, 6) + "-" + info.date.slice(6, 8) : "");
@@ -127,7 +128,7 @@ async function isoImport(st) {
   let done = 0, next = 0; const errors = [];
   const show = () => { $("#msg").textContent = "Copying images from the CD (first visit only): " + done + " / " + files.length; $("#bar i").style.width = (done / files.length * 100) + "%"; };
   show();
-  const worker = async () => { while (next < files.length) { const f = files[next++]; try { await iso("copy", { path: f.path, lba: f.lba, size: f.size }); } catch (e) { errors.push(f.path + ": " + e.message); } done++; show(); } };
+  const worker = async () => { while (next < files.length) { const f = files[next++]; try { await iso("copy", Object.assign({ path: f.path }, where(f))); } catch (e) { errors.push(f.path + ": " + e.message); } done++; show(); } };
   await Promise.all([worker(), worker(), worker(), worker()]);
   if (errors.length) { $("#err").textContent = errors.length + " file(s) failed – press Try again (copied files are kept):\n" + errors.slice(0, 30).join("\n"); $("#retry").hidden = false; return; }
   const r = await fetch("api/upload?s=" + encodeURIComponent(scan) + "&finish=1", { method: "POST", headers: { "Content-Type": "application/json" },
