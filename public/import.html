@@ -145,13 +145,23 @@ async function isoImport(st) {
   const worker = async () => { while (next < files.length) { const f = files[next++]; try { await iso("copy", Object.assign({ path: f.path }, where(f))); } catch (e) { errors.push(f.path + ": " + e.message); } done++; show(); } };
   await Promise.all(Array.from({ length: 12 }, worker));
   if (errors.length) { $("#err").textContent = errors.length + " file(s) failed – press Try again (copied files are kept):\n" + errors.slice(0, 30).join("\n"); $("#retry").hidden = false; return; }
-  const r = await fetch("api/upload?s=" + encodeURIComponent(scan) + "&finish=1", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ type, title, date, files: files.map(f => f.path) }) });
-  if (!r.ok) { $("#err").textContent = "Could not finish: " + await r.text(); $("#retry").hidden = false; return; }
+  const finish = async () => {
+    $("#err").textContent = ""; $("#retry").hidden = true; $("#msg").textContent = "Saving…";
+    let r;
+    for (let a = 0; a < 4; a++) {
+      try { r = await fetch("api/upload?s=" + encodeURIComponent(scan) + "&finish=1", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, title, date, files: files.map(f => f.path) }) }); if (r.ok || r.status === 409) break; } catch (e) { r = null; }
+      await sleep(2000 * 2 ** a);
+    }
+    if (!r || !r.ok) { pendingFinish = finish; $("#err").textContent = "Could not finish: " + (r ? await r.text() : "network error") + " – press Try again"; $("#retry").hidden = false; return false; }
+    return true;
+  };
+  if (!(await finish())) return;
   $("#msg").textContent = "Done – opening the viewer…"; $("#bar i").style.width = "100%";
   await sleep(600); viewer();
 }
-$("#retry").onclick = () => run().catch(e => { $("#err").textContent = String(e); $("#retry").hidden = false; });
+let pendingFinish = null;
+$("#retry").onclick = () => (pendingFinish ? pendingFinish().then(ok => { if (ok) { pendingFinish = null; viewer(); } }) : run()).catch(e => { $("#err").textContent = String(e); $("#retry").hidden = false; });
 run().catch(e => { $("#err").textContent = String(e); $("#retry").hidden = false; });
 </script>
 </body>

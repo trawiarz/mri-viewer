@@ -28,7 +28,15 @@ export async function onRequest({ request, env }) {
     try { body = await request.json(); } catch { return json({ error: "bad json" }, 400); }
     const files = Array.isArray(body.files) ? body.files.filter(okPath) : [];
     if (!TYPES.includes(body.type) || !files.length) return json({ error: "type and files required" }, 400);
-    for (const p of files) if (!(await env.BUCKET.head(id + "/" + p))) return json({ error: "missing file", path: p }, 409);
+    const have = new Set(); // one listing instead of a HEAD per file (large CDs have 1000+ images)
+    let cursor;
+    do {
+      const r = await env.BUCKET.list({ prefix: id + "/", cursor, limit: 1000 });
+      r.objects.forEach(o => have.add(o.key));
+      cursor = r.truncated ? r.cursor : undefined;
+    } while (cursor);
+    const missing = files.find(p => !have.has(id + "/" + p));
+    if (missing) return json({ error: "missing file", path: missing }, 409);
     await env.BUCKET.put(id + "/files.json", JSON.stringify(files, null, 1), { httpMetadata: { contentType: "application/json" } });
     const lib = (await readLibrary(env.BUCKET)).filter(e => e.id !== id);
     lib.push({ id, type: body.type, title: String(body.title || id).slice(0, 120), date: String(body.date || "").slice(0, 10), count: files.length });
