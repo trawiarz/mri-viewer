@@ -20,7 +20,21 @@ async function listKeys(bucket, prefix) {
   return keys;
 }
 
-async function download(env, id) {
+// A file stored on Drive as base64 text pieces: "b64:<id>,<id>,...#<sha256 of the decoded file>"
+async function downloadPieces(env, spec) {
+  const [ids, sha] = spec.slice(4).split("#");
+  let text = "";
+  for (const id of ids.split(",")) text += new TextDecoder().decode(await download(env, id, true));
+  const bin = atob(text.replace(/\s+/g, ""));
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  const hex = [...new Uint8Array(await crypto.subtle.digest("SHA-256", out))].map(b => b.toString(16).padStart(2, "0")).join("");
+  if (sha && hex !== sha) throw new Error("checksum mismatch");
+  return out;
+}
+
+async function download(env, id, text = false) {
+  if (id.startsWith("b64:")) return downloadPieces(env, id);
   const urls = env.DRIVE_URL
     ? [env.DRIVE_URL.replace("{id}", id)]
     : ["https://drive.usercontent.google.com/download?id=" + id + "&export=download&confirm=t",
@@ -29,7 +43,7 @@ async function download(env, id) {
   for (const u of urls) {
     try {
       const r = await fetch(u, { redirect: "follow" });
-      if (r.ok && !/text\/html/i.test(r.headers.get("content-type") || "")) return new Uint8Array(await r.arrayBuffer());
+      if (r.ok && (text || !/text\/html/i.test(r.headers.get("content-type") || ""))) return new Uint8Array(await r.arrayBuffer());
       last = "HTTP " + r.status + " " + (r.headers.get("content-type") || "");
     } catch (e) { last = String(e); }
   }
