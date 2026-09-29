@@ -83,12 +83,18 @@ const SKIP_EXT = ["exe", "jar", "xml", "dll", "ini", "inf", "bat", "cmd", "sh", 
 function extOf(n) { const m = /\.([^.\/]+)$/.exec(n || ""); if (!m) return ""; const e = m[1].toLowerCase(); return /^\d+$/.test(e) ? "" : e; }
 async function iso(op, body) {
   for (let a = 0; ; a++) {
+    let last;
     try {
-      const r = await fetch("api/iso?op=" + op, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.assign({ s: scan }, body)) });
+      const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 90000);
+      const r = await fetch("api/iso?op=" + op, { method: "POST", signal: ctl.signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.assign({ s: scan }, body)) });
+      clearTimeout(t);
       const j = await r.json().catch(() => ({ error: "HTTP " + r.status }));
-      if (r.ok) return j;
-      if (a >= 3 || r.status === 400 || r.status === 404) throw new Error(j.error || "HTTP " + r.status);
-    } catch (e) { if (a >= 3) throw e; }
+      if (r.ok) { if (op === "dir") $("#err").textContent = ""; return j; }
+      last = new Error(j.error || "HTTP " + r.status);
+      if (r.status === 400 || r.status === 404) throw last;
+    } catch (e) { last = e.name === "AbortError" ? new Error("Google Drive did not answer within 90 s") : e; }
+    if (a >= 3) throw last;
+    if (op === "dir") $("#err").textContent = "Retrying (" + (a + 1) + "/3): " + last.message;
     await sleep(1500 * 2 ** a);
   }
 }
