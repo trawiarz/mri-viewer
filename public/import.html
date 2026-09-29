@@ -101,24 +101,36 @@ async function iso(op, body) {
 async function isoImport(st) {
   $("#msg").textContent = "Opening the CD image…";
   const top = await iso("dir", {});
-  const files = [], queue = [{ entries: top.entries, path: [] }];
-  let dirs = 0;
-  while (queue.length) {
-    const { entries, path } = queue.shift();
+  const files = [], seen = [];
+  let dirs = 0, active = 0;
+  const skipDir = n => SKIP_DIRS.includes(n.trim().toLowerCase());
+  // Hospital discs keep the images under a DICOM folder; the rest is viewer software. Walk only that when it exists.
+  let roots = top.entries.filter(e => e.dir && /^(dicom|images?|dcm)$/i.test(e.name.trim()));
+  const inDicom = roots.length > 0;
+  if (!inDicom) roots = top.entries.filter(e => e.dir && !skipDir(e.name));
+  const queue = roots.map(e => ({ e, path: [e.name] }));
+  const take = (entries, path) => {
     for (const e of entries) {
-      if (e.dir) {
-        if (SKIP_DIRS.includes(e.name.trim().toLowerCase())) continue;
-        dirs++; $("#msg").textContent = "Reading the CD… " + dirs + " folders, " + files.length + " files";
-        const sub = await iso("dir", top.udf ? { udf: top.udf, ref: e.ref } : { lba: e.lba, size: e.size, joliet: top.joliet });
-        queue.push({ entries: sub.entries, path: path.concat(e.name) });
-      } else {
-        const e2 = extOf(e.name);
-        if (e.name.toUpperCase() === "DICOMDIR" || (!top.udf && !e.size)) continue;
-        if (["dcm", "dicom", "ima"].includes(e2) || (!e2 && !SKIP_EXT.includes(e2))) files.push(Object.assign({ path: path.concat(e.name).map(x => x.replace(/[^\w.\- ]+/g, "_")).join("/") }, e));
-      }
+      if (e.dir) { if (!skipDir(e.name)) queue.push({ e, path: path.concat(e.name) }); continue; }
+      if (seen.length < 8) seen.push(path.concat(e.name).join("/"));
+      const e2 = extOf(e.name);
+      if (e.name.toUpperCase() === "DICOMDIR" || (!top.udf && !e.size)) continue;
+      if (["dcm", "dicom", "ima"].includes(e2) || (inDicom ? !SKIP_EXT.includes(e2) : !e2)) files.push(Object.assign({ path: path.concat(e.name).map(x => x.replace(/[^\w.\- ]+/g, "_")).join("/") }, e));
+    }
+  };
+  take(top.entries.filter(e => !e.dir), []);
+  const showWalk = () => { $("#msg").textContent = "Reading the CD… " + dirs + " folders, " + files.length + " images found"; };
+  async function walker() {
+    while (queue.length || active) {
+      if (!queue.length) { await sleep(100); continue; }
+      const { e, path } = queue.shift(); active++;
+      try { const sub = await iso("dir", top.udf ? { udf: top.udf, ref: e.ref } : { lba: e.lba, size: e.size, joliet: top.joliet }); take(sub.entries, path); }
+      finally { active--; dirs++; showWalk(); }
     }
   }
-  if (!files.length) throw new Error("No scan images found on this CD (" + dirs + " folders looked at).");
+  showWalk();
+  await Promise.all(Array.from({ length: 8 }, walker));
+  if (!files.length) throw new Error("No scan images found on this CD (" + dirs + " folders looked at). Files seen: " + (seen.join(", ") || "none"));
   const where = f => top.udf ? { udf: top.udf, ref: f.ref } : { lba: f.lba, size: f.size };
   let info = {}; try { info = await iso("peek", where(files[0])); } catch (e) {}
   const MOD = { CT: "ct", MR: "mri", CR: "xray", DX: "xray", DR: "xray", RG: "xray", XA: "xray", RF: "xray", MG: "xray", PX: "xray" };
