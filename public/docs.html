@@ -32,7 +32,6 @@
 </header>
 <main><div id="msg">Loading…</div></main>
 <script>
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 const $ = s => document.querySelector(s);
 const id = new URLSearchParams(location.search).get("s") || "";
 const url = p => "files/" + [id].concat(p.split("/")).map(encodeURIComponent).join("/");
@@ -66,5 +65,6 @@ function show(p, btn) {
   } catch (err) { $("#msg").textContent = "Could not open these documents (" + err.message + ")."; }
 })();
 </script>
+<script src="bg.js"></script>
 </body>
 </html>

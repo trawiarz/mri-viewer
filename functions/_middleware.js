@@ -10,6 +10,11 @@ function same(a, b) {
   return d === 0;
 }
 
+async function sha256(t) {
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(t));
+  return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
 function password(request) {
   const h = request.headers.get("Authorization") || "";
   if (!h.startsWith("Basic ")) return null;
@@ -35,8 +40,12 @@ export async function onRequest({ request, env, next }) {
   const secret = await sitePassword(env);
   if (!secret) return new Response("Site locked: no password configured.", { status: 503, headers: { "Cache-Control": "no-store", ...NOINDEX } });
 
+  // A signed-in browser also gets a cookie, so the background downloader (sw.js) can fetch files too.
+  const token = await sha256(secret + "|mri-viewer");
+  const cookie = /(?:^|;\s*)auth=([0-9a-f]{64})/.exec(request.headers.get("Cookie") || "");
   const given = password(request);
-  if (given === null || !same(given, secret))
+  const okCookie = cookie && same(cookie[1], token);
+  if (!okCookie && (given === null || !same(given, secret)))
     return new Response("Password required.", {
       status: 401,
       headers: { "WWW-Authenticate": 'Basic realm="Viewer", charset="UTF-8"', "Cache-Control": "no-store", ...NOINDEX },
@@ -46,5 +55,6 @@ export async function onRequest({ request, env, next }) {
   const out = new Response(res.body, res);
   for (const [k, v] of Object.entries(NOINDEX)) out.headers.set(k, v);
   out.headers.set("Referrer-Policy", "no-referrer");
+  if (!okCookie) out.headers.append("Set-Cookie", "auth=" + token + "; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Strict");
   return out;
 }
