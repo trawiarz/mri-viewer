@@ -1,0 +1,1173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<meta name="theme-color" content="#000000">
+<title>MRI Viewer</title>
+<style>
+:root{
+  --bg:#0d0e10;--panel:#16181c;--panel2:#1e2127;--line:#2a2e36;--text:#e6e8eb;--muted:#9aa1ab;
+  --accent:#4ea1ff;--accent-bg:#1b3350;--bad:#ff6b6b;--ok:#5fd38d;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+  font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-text-size-adjust:100%}
+body{overflow:hidden}
+button,input{font:inherit;color:inherit}
+button{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:7px 11px;cursor:pointer;white-space:nowrap;
+  touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+button:hover{border-color:#3b414c}
+button.on{background:var(--accent-bg);border-color:var(--accent);color:#fff}
+button:disabled{opacity:.45;cursor:default}
+.hidden{display:none!important}
+
+/* ---------- setup ---------- */
+#setup{height:100%;overflow:auto;display:flex;align-items:center;justify-content:center;padding:16px}
+.card{width:100%;max-width:520px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px}
+.card h1{font-size:20px;margin:0 0 6px}
+.card p{margin:0 0 14px;color:var(--muted)}
+.card input{width:100%;background:#0b0c0e;border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:10px}
+.card input:focus{outline:none;border-color:var(--accent)}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.row button{flex:1 1 auto}
+.cats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}
+.cats button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:16px;border-radius:12px;font-size:15px;text-align:left}
+.cats button b{font-size:19px}.cats button span{font-size:12.5px;color:var(--muted)}
+.cats button.on{border-color:var(--accent);background:#17324d}
+.cats button.empty{opacity:.55}
+#catTitle{font-size:15px;margin:6px 0 8px}
+#studyList a{display:block;padding:11px 12px;margin-bottom:8px;border:1px solid var(--line);border-radius:10px;background:#0b0c0e;color:inherit;text-decoration:none}
+#studyList a:hover{border-color:var(--accent)}
+#studyList small{display:block;color:var(--muted);margin-top:2px}
+.note a{color:var(--accent)}
+#genOut{margin-top:14px;word-break:break-all;background:#0b0c0e;border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+#genOut a{color:var(--accent)}
+.err{color:var(--bad);margin-top:8px;min-height:1em}
+.note{font-size:12.5px;color:var(--muted);margin-top:14px}
+
+/* ---------- app ---------- */
+#app{height:100%;height:100dvh;display:grid;
+  grid-template-columns:1fr;grid-template-rows:auto auto 1fr auto auto;
+  grid-template-areas:"top" "series" "stage" "slider" "tools"}
+#homeBtn{color:#fff;background:var(--accent);text-decoration:none;white-space:nowrap;font-size:17px;font-weight:600;padding:10px 16px;border-radius:10px;flex:none}
+#saveInfo{margin-top:16px;padding:12px 14px;border:1px solid var(--accent);border-radius:12px;background:#15263a}
+#saveInfo b{display:block;font-size:15px;margin-bottom:8px}
+#saveInfo.ok{border-color:#2e9e5b;background:#12301f}
+#saveInfo.ok b{color:#5fd68f}
+#saveInfo.ok .sbar{display:none}
+#saveInfo small{display:block;color:#9aa0aa;font-size:12px;margin-top:6px}
+#saveInfo .sbar{height:8px;background:#2c2f36;border-radius:4px;overflow:hidden}
+#saveInfo .sbar>i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+#presetSel{background:var(--panel2);color:inherit;border:1px solid var(--line);border-radius:8px;padding:6px}
+#top{grid-area:top;display:flex;align-items:center;gap:8px;padding:6px 10px;padding-top:max(6px,env(safe-area-inset-top));
+  background:var(--panel);border-bottom:1px solid var(--line);min-height:40px}
+#status{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted);font-size:13px}
+#loadBox{position:absolute;left:50%;top:14px;transform:translateX(-50%);z-index:5;width:min(420px,calc(100% - 32px));box-sizing:border-box;background:rgba(20,22,27,.92);border:1px solid var(--accent);border-radius:12px;padding:12px 16px;text-align:center;pointer-events:none;box-shadow:0 4px 18px rgba(0,0,0,.5)}
+#loadBox b{display:block;font-size:18px;color:#fff;margin-bottom:8px}
+#loadBox small{display:block;color:#9aa0aa;font-size:12px;margin-top:6px}
+#loadBar{height:10px;background:#2c2f36;border-radius:5px;overflow:hidden}
+#loadBar>i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+#loadBox.done{display:none}
+#bar{height:3px;background:var(--line);border-radius:2px;overflow:hidden;width:80px;flex:none}
+#bar>i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+#failBtn{padding:4px 9px;font-size:12.5px;color:var(--bad);border-color:#5a2a2a}
+#series{grid-area:series;display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;padding:6px;background:var(--panel);
+  border-bottom:1px solid var(--line);scrollbar-width:thin}
+.th{flex:none;width:76px;background:#000;border:2px solid transparent;border-radius:8px;overflow:hidden;cursor:pointer;padding:0;text-align:left}
+.th.on{border-color:var(--accent)}
+.th canvas{display:block;width:100%;aspect-ratio:1;background:#000}
+.th .lb{display:block;font-size:11px;line-height:1.25;padding:3px 4px;background:var(--panel2);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.th .ct{color:var(--muted)}
+#stage{grid-area:stage;position:relative;background:#000;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;min-height:0}
+#cv{position:absolute;inset:0;width:100%;height:100%;display:block}
+.ov{position:absolute;pointer-events:none;font-size:12px;line-height:1.35;color:#fff;text-shadow:0 0 3px #000,0 0 2px #000;
+  padding:6px 8px;max-width:60%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ov div{overflow:hidden;text-overflow:ellipsis}
+.ovd{font-size:15px;font-weight:700}
+.pan{position:absolute;top:0;bottom:0;left:0;width:100%;pointer-events:none}
+#pan1{display:none}
+#stage.dual #pan0{width:50%}#stage.dual #pan1{display:block;left:50%;width:50%}
+.pan .t{top:2px;left:50%;transform:translateX(-50%)}.pan .b{bottom:2px;left:50%;transform:translateX(-50%)}.pan .l{left:4px;top:50%;transform:translateY(-50%)}.pan .r{right:4px;top:50%;transform:translateY(-50%)}
+.pan .tl{top:0;left:0}.pan .tr{top:0;right:0;text-align:right}.pan .bl{bottom:0;left:0}.pan .br{bottom:0;right:0;text-align:right}
+#msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:20px;text-align:center}
+#msg .box{max-width:460px;background:rgba(22,24,28,.95);border:1px solid var(--line);border-radius:12px;padding:18px}
+#msg h2{margin:0 0 8px;font-size:17px}
+#msg p{margin:0 0 12px;color:var(--muted)}
+#msg.error h2{color:var(--bad)}
+.spin{width:28px;height:28px;border:3px solid var(--line);border-top-color:var(--accent);border-radius:50%;margin:0 auto 12px;animation:sp 1s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+#sliderWrap{grid-area:slider;display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--panel);border-top:1px solid var(--line)}
+#slider{flex:1;accent-color:var(--accent);height:24px;margin:0}
+#sliderLbl{font-size:12px;color:var(--muted);min-width:64px;text-align:right;font-variant-numeric:tabular-nums}
+#tools{grid-area:tools;display:flex;flex-wrap:wrap;justify-content:center;gap:6px;padding:6px 8px;padding-bottom:max(6px,env(safe-area-inset-bottom));background:var(--panel);
+  align-items:center}
+@media (max-width:799px){#tools button{padding:6px 9px;font-size:13px}#tools .sep{display:none}}
+.seg{display:flex;flex:none}
+.seg button{border-radius:0;margin-left:-1px}
+.seg button:first-child{border-radius:8px 0 0 8px;margin-left:0}
+.seg button:last-child{border-radius:0 8px 8px 0}
+.sep{flex:none;width:1px;align-self:stretch;background:var(--line);margin:2px 2px}
+#tools>button{flex:none}
+
+/* failures + grid overlays */
+.sheet{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.6);display:flex;align-items:flex-end;justify-content:center}
+.sheet .inner{background:var(--panel);border:1px solid var(--line);border-radius:14px 14px 0 0;width:100%;max-width:640px;max-height:75vh;display:flex;flex-direction:column}
+.sheet header{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}
+.sheet header b{flex:1}
+.sheet .body{overflow:auto;padding:8px 12px 16px}
+#failList div{padding:6px 0;border-bottom:1px solid var(--line);font-size:13px;word-break:break-all}
+#failList span{color:var(--muted)}
+#grid{position:fixed;inset:0;z-index:15;background:#000;display:flex;flex-direction:column}
+#grid header{display:flex;align-items:center;gap:8px;padding:8px 10px;padding-top:max(8px,env(safe-area-inset-top));background:var(--panel);border-bottom:1px solid var(--line)}
+#grid header b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#gridBody{flex:1;overflow:auto;padding:6px;padding-bottom:max(6px,env(safe-area-inset-bottom))}
+.gh{font-size:13px;color:var(--muted);padding:10px 2px 6px}
+.gg{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:4px}
+.gi{position:relative;background:#000;border:2px solid transparent;border-radius:4px;padding:0;overflow:hidden;aspect-ratio:1;cursor:pointer}
+.gi.on{border-color:var(--accent)}
+.gi canvas{width:100%;height:100%;display:block}
+.gi span{position:absolute;left:3px;bottom:2px;font-size:10.5px;color:#fff;text-shadow:0 0 3px #000}
+#toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#fff;color:#000;border-radius:20px;padding:8px 16px;
+  z-index:30;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none}
+#toast.show{opacity:1}
+
+@media (min-width:800px){
+  #tools{justify-content:flex-start}
+  #app{grid-template-columns:200px 1fr;grid-template-rows:auto 1fr auto auto;
+    grid-template-areas:"top top" "series stage" "series slider" "series tools"}
+  #series{flex-direction:column;overflow-y:auto;overflow-x:hidden;border-bottom:0;border-right:1px solid var(--line);padding:8px}
+  .th{width:100%;display:flex;align-items:center;background:var(--panel2)}
+  .th canvas{width:64px;flex:none}
+  .th .lb{flex:1;min-width:0;font-size:12px;white-space:normal;max-height:4.2em;background:none;padding:4px 6px}
+  .ov{font-size:13px}
+  .gg{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+  .sheet{align-items:center}
+  .sheet .inner{border-radius:14px}
+}
+</style>
+<!-- daikon's bundle only initialises when a global `require` exists. Keep this defined. -->
+<script>window.require=function(n){throw new Error("no module "+n)}</script>
+<script src="https://cdn.jsdelivr.net/npm/daikon@1.2.46/release/current/daikon.js"></script>
+</head>
+<body>
+
+<div id="setup" class="hidden">
+  <div class="card home">
+    <h1>Medical records</h1>
+    <div class="cats" id="cats">
+      <button data-type="mri"><b>MRI</b><span></span></button>
+      <button data-type="ct"><b>CT</b><span></span></button>
+      <button data-type="xray"><b>X-ray</b><span></span></button>
+      <button data-type="docs"><b>Documents</b><span></span></button>
+    </div>
+    <h2 id="catTitle"></h2>
+    <div id="studyList"></div>
+    <div id="saveInfo" class="hidden"><b>Saving scans to this device…</b><div class="sbar"><i></i></div><small></small></div>
+    <div class="err" id="setupErr"></div>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+  <div id="top">
+    <a id="homeBtn" href="./" title="All records">&#8592; Records</a>
+    <div id="status">Starting…</div>
+    <div id="bar"><i></i></div>
+    <button id="failBtn" class="hidden"></button>
+  </div>
+  <div id="series"></div>
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div id="loadBox"><b id="loadTxt">Loading images…</b><div id="loadBar"><i></i></div><small>Please wait – images appear as they arrive</small></div>
+    <div class="pan" id="pan0"><div class="ov tl"></div><div class="ov tr"></div><div class="ov bl"></div><div class="ov br"></div><div class="ov ovd t"></div><div class="ov ovd b"></div><div class="ov ovd l"></div><div class="ov ovd r"></div></div>
+    <div class="pan" id="pan1"><div class="ov tl"></div><div class="ov tr"></div><div class="ov bl"></div><div class="ov br"></div><div class="ov ovd t"></div><div class="ov ovd b"></div><div class="ov ovd l"></div><div class="ov ovd r"></div></div>
+    <div id="msg"></div>
+  </div>
+  <div id="sliderWrap">
+    <input id="slider" type="range" min="0" max="0" value="0" step="1" aria-label="Image">
+    <span id="sliderLbl">0 / 0</span>
+  </div>
+  <div id="tools">
+    <div class="seg" id="toolSeg">
+      <button data-tool="scroll" class="on" title="Drag to scroll through images">Scroll</button>
+      <button data-tool="contrast" title="Drag to change contrast (also right-drag)">Contrast</button>
+      <button data-tool="move" title="Drag to move the image">Move</button>
+      <button data-tool="zoom" title="Drag up/down to zoom">Zoom</button>
+    </div>
+    <span class="sep"></span>
+    <button id="playBtn" title="Play / pause (Space)">Play</button>
+    <button id="invBtn" title="Invert (I)">Invert</button>
+    <button id="resetBtn" title="Reset view and contrast (R, double-click)">Reset</button>
+    <select id="presetSel" hidden title="CT window presets">
+      <option value="">Window…</option><option value="40,80">Brain</option><option value="50,400">Soft tissue</option>
+      <option value="-600,1500">Lung</option><option value="400,1800">Bone</option><option value="200,600">Angio</option><option value="75,215">Stroke</option>
+    </select>
+    <button id="dualBtn" title="Two panels: this image and the next one (2)">2 panels</button>
+    <button id="gridBtn" title="All images (G)">All images</button>
+    <button id="shareBtn" title="Share link to this viewer">Share link</button>
+  </div>
+</div>
+
+<div id="grid" class="hidden">
+  <header>
+    <b id="gridTitle">All images</b>
+    <div class="seg"><button id="gCur" class="on">This series</button><button id="gAll">All series</button></div>
+    <button id="gClose">Close</button>
+  </header>
+  <div id="gridBody"></div>
+</div>
+
+<div id="failSheet" class="sheet hidden">
+  <div class="inner">
+    <header><b id="failTitle">Not shown</b><button id="failClose">Close</button></header>
+    <div class="body" id="failList"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ================= configuration ================= */
+const FILES = "files/"; // served from the R2 bucket by functions/files/[[path]].js
+const PARALLEL = 6;
+const SKIP_FOLDERS = ["jre", "lib"];
+const SKIP_EXT = ["exe", "jar", "xml"];
+
+/* ================= helpers ================= */
+const $ = s => document.querySelector(s);
+const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const nextFrame = () => new Promise(r => setTimeout(r, 0));
+let toastT;
+function toast(t) { const e = $("#toast"); e.textContent = t; e.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => e.classList.remove("show"), 1800); }
+
+function parseScan(input) {
+  input = (input || "").trim();
+  try { const u = new URL(input); input = u.searchParams.get("s") || ""; } catch (e) {}
+  return /^[A-Za-z0-9_-]{1,64}$/.test(input) ? input : null;
+}
+function viewerLink(scan) {
+  return location.origin + location.pathname + "?s=" + encodeURIComponent(scan);
+}
+async function copyText(t) {
+  try { await navigator.clipboard.writeText(t); return true; }
+  catch (e) {
+    const ta = el("textarea"); ta.value = t; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta);
+    ta.select(); let ok = false; try { ok = document.execCommand("copy"); } catch (e2) {} ta.remove(); return ok;
+  }
+}
+
+/* ================= setup screen ================= */
+const CAT = { mri: "MRI", ct: "CT", xray: "X-ray", docs: "Documents" };
+function studyLink(e) { return e.type === "docs" ? "docs.html?s=" + encodeURIComponent(e.id) : "./?s=" + encodeURIComponent(e.id); }
+async function showSetup(errText) {
+  $("#setup").classList.remove("hidden");
+  $("#app").classList.add("hidden");
+  $("#setupErr").textContent = errText || "";
+  document.title = "Medical records";
+  let lib = [];
+  try { const r = await fetch("api/library", { cache: "no-store" }); if (r.ok) lib = await r.json(); }
+  catch (e) { $("#setupErr").textContent = "Could not load the list (" + e.message + ")."; }
+  const pick = (type, clicked) => {
+    const mine = lib.filter(e => e.type === type);
+    if (clicked && mine.length === 1) { location.href = studyLink(mine[0]); return; } // one study: open it straight away
+    location.hash = type;
+    $("#cats").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.type === type));
+    const items = lib.filter(e => e.type === type).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    $("#catTitle").textContent = CAT[type] || "";
+    const box = $("#studyList"); box.innerHTML = "";
+    if (!items.length) {
+      box.appendChild(el("p", "note", "Nothing here yet."));
+    }
+    items.forEach(e => {
+      const a = el("a"); a.href = studyLink(e);
+      a.appendChild(el("span", null, e.title || e.id));
+      a.appendChild(el("small", null, [e.date, e.pending ? "not opened yet – first opening copies it from Google Drive" : e.count ? e.count + (e.type === "docs" ? " file(s)" : " files") : ""].filter(Boolean).join(" · ")));
+      box.appendChild(a);
+    });
+  };
+  $("#cats").querySelectorAll("button").forEach(b => {
+    const n = lib.filter(e => e.type === b.dataset.type).length;
+    const word = b.dataset.type === "docs" ? ["document", "documents"] : ["study", "studies"];
+    b.querySelector("span").textContent = n ? n + " " + word[n === 1 ? 0 : 1] : "none yet";
+    b.classList.toggle("empty", !n);
+    b.onclick = () => pick(b.dataset.type, true);
+  });
+  pick(CAT[location.hash.slice(1)] ? location.hash.slice(1) : "mri");
+}
+
+/* ================= file store ================= */
+class FetchError extends Error {
+  constructor(title, detail, status) { super(title); this.title = title; this.detail = detail; this.status = status; }
+}
+function explainFetchError(status, body, what) {
+  if (status === 404) return new FetchError("Not found", "Could not " + what + " – the file is not on the server.", status);
+  if (status === 429) return new FetchError("Rate limited", "Too many requests right now. Wait a minute and reload the page.", status);
+  return new FetchError("Server error" + (status ? " (" + status + ")" : ""), (body || "").slice(0, 200) || ("Could not " + what + "."), status);
+}
+async function storeFetch(url, what, asBuffer) {
+  for (let attempt = 0; ; attempt++) {
+    let res;
+    try { res = await fetch(url); }
+    catch (e) {
+      if (attempt === 0) { await sleep(1200); continue; }
+      throw new FetchError("Network error", "Could not reach the server (" + e.message + "). Check the internet connection.", 0);
+    }
+    if (res.ok) return asBuffer ? res.arrayBuffer() : res.json();
+    const body = await res.text().catch(() => "");
+    const retryable = res.status === 429 || res.status >= 500;
+    if (retryable && attempt === 0) { await sleep(1500 + Math.random() * 2500); continue; }
+    throw explainFetchError(res.status, body, what);
+  }
+}
+function fileUrl(scan, path) {
+  return FILES + [scan].concat(path.split("/")).map(encodeURIComponent).join("/");
+}
+function extOf(name) {
+  const m = /\.([^.\/]+)$/.exec(name || "");
+  if (!m) return "";
+  const e = m[1].toLowerCase();
+  return /^\d+$/.test(e) ? "" : e; // "1.2.840.113..." style names have no real extension
+}
+function isDicomCandidate(f) {
+  const name = (f.name || "");
+  const ext = extOf(name);
+  if (name.toUpperCase() === "DICOMDIR") return false;
+  if (SKIP_EXT.includes(ext)) return false;
+  if (f.mimeType === "application/dicom" || f.mimeType === "application/x-dicom") return true;
+  if (ext === "dcm" || ext === "dicom" || ext === "ima") return true;
+  if (!ext && (f.mimeType === "application/octet-stream" || !f.mimeType)) return true;
+  return false;
+}
+
+/* ================= state ================= */
+const S = {
+  scan: null,
+  series: [], seriesByUid: new Map(),
+  cur: null, idx: 0, userNav: false,
+  tool: "scroll", invert: false, dual: false, playing: false, playT: null,
+  view: { zoom: 1, px: 0, py: 0 },
+  failed: [], total: 0, done: 0, listing: true, images: 0,
+  gridAll: false,
+  meta: { date: "" },
+};
+
+/* ================= DICOM decoding ================= */
+function fmtDate(d) {
+  if (!d) return "";
+  if (d instanceof Date && !isNaN(d)) return d.toISOString().slice(0, 10);
+  const s = String(d).replace(/\D/g, "");
+  return s.length === 8 ? s.slice(0, 4) + "-" + s.slice(4, 6) + "-" + s.slice(6, 8) : String(d);
+}
+function fmtTime(t) {
+  if (!t) return "";
+  if (t instanceof Date && !isNaN(t)) return [t.getHours(), t.getMinutes(), t.getSeconds()].map(n => String(n).padStart(2, "0")).join(":");
+  const s = String(t).replace(/[^\d.]/g, "").split(".")[0];
+  return s.length >= 4 ? s.slice(0, 2) + ":" + s.slice(2, 4) + (s.length >= 6 ? ":" + s.slice(4, 6) : "") : "";
+}
+function tagText(image, g, e) {
+  try { const v = daikon.Image.getSingleValueSafely(image.getTag(g, e), 0); return v == null ? "" : v; } catch (err) { return ""; }
+}
+function num(v, d) { const n = Array.isArray(v) ? parseFloat(v[0]) : parseFloat(v); return isFinite(n) ? n : d; }
+
+// Pull encapsulated JPEG frames straight out of the file (used when daikon can't decode baseline JPEG).
+function extractJpegFrames(buf) {
+  const u8 = new Uint8Array(buf), dv = new DataView(buf);
+  let p = -1;
+  for (let i = u8.length - 12; i >= 132; i--) { // last (7FE0,0010) tag with undefined length
+    if (u8[i] === 0xE0 && u8[i + 1] === 0x7F && u8[i + 2] === 0x10 && u8[i + 3] === 0x00 &&
+        dv.getUint32(i + 8, true) === 0xFFFFFFFF && u8[i + 4] === 0x4F /*O*/) { p = i + 12; break; }
+  }
+  if (p < 0) throw new Error("no encapsulated pixel data");
+  const frags = [];
+  while (p + 8 <= u8.length) {
+    const g = dv.getUint16(p, true), e = dv.getUint16(p + 2, true), len = dv.getUint32(p + 4, true);
+    p += 8;
+    if (g === 0xFFFE && e === 0xE0DD) break;
+    if (g !== 0xFFFE || e !== 0xE000) break;
+    frags.push(u8.subarray(p, p + len)); p += len;
+  }
+  frags.shift(); // basic offset table
+  const frames = []; let cur = null;
+  for (const f of frags) {
+    if (f.length > 1 && f[0] === 0xFF && f[1] === 0xD8) { cur = [f]; frames.push(cur); }
+    else if (cur) cur.push(f);
+  }
+  return frames.map(parts => new Blob(parts, { type: "image/jpeg" }));
+}
+async function decodeJpegBlob(blob, cols, rows, spp) {
+  const bmp = await createImageBitmap(blob);
+  const w = bmp.width || cols, h = bmp.height || rows;
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(bmp, 0, 0); bmp.close && bmp.close();
+  const d = ctx.getImageData(0, 0, w, h).data;
+  const n = w * h, out = new Uint8Array(n * spp);
+  if (spp === 1) for (let i = 0; i < n; i++) out[i] = d[i * 4];
+  else for (let i = 0; i < n; i++) { out[i * 3] = d[i * 4]; out[i * 3 + 1] = d[i * 4 + 1]; out[i * 3 + 2] = d[i * 4 + 2]; }
+  return { data: out, cols: w, rows: h, min: 0, max: 255 };
+}
+function compact(f32, min, max) {
+  let integral = true;
+  for (let i = 0; i < f32.length; i += 97) if (f32[i] !== Math.round(f32[i])) { integral = false; break; }
+  if (integral && min >= 0 && max <= 65535) return Uint16Array.from(f32);
+  if (integral && min >= -32768 && max <= 32767) return Int16Array.from(f32);
+  return f32;
+}
+
+// Polish letters stored as UTF-8 but read as Latin-1 ("gÅowy" -> "głowy")
+function fixText(t) {
+  t = String(t == null ? "" : t);
+  if (!/[\u00c2-\u00c5][\u0080-\u00bf]/.test(t)) return t;
+  try { return decodeURIComponent(escape(t)); } catch (e) { return t; }
+}
+function parseDicom(buf) {
+  if (typeof daikon === "undefined" || !daikon.Series) throw new Error("DICOM decoder failed to load");
+  let image;
+  try { image = daikon.Series.parseImage(new DataView(buf)); } catch (e) { throw new Error("not a readable DICOM file"); }
+  if (!image) throw new Error("not a DICOM file");
+  if (!image.hasPixelData()) throw new Error("no image in file");
+  const photo = String(image.getPhotometricInterpretation() || "").trim().toUpperCase();
+  if (photo === "MONOCHROME1") image.getPhotometricInterpretation = () => "MONOCHROME2";
+  return image;
+}
+// Pixels of one image, read when it is shown (the file comes from the device's storage via sw.js).
+async function decodePixels(buf, im) {
+  const image = parseDicom(buf);
+  const ts = String(image.getTransferSyntax() || "");
+  const isBaseline = ts.startsWith("1.2.840.10008.1.2.4.50") || ts.startsWith("1.2.840.10008.1.2.4.51");
+  try {
+    const r = im.frames > 1 ? image.getInterpretedData(false, true, im.frame) : image.getInterpretedData(false, true);
+    return { data: im.spp === 1 ? compact(r.data, r.min, r.max) : r.data, min: r.min, max: r.max };
+  } catch (e) {
+    if (!isBaseline) throw new Error("can't decode image (" + (ts || "unknown format") + "): " + (e.message || e));
+    let blobs;
+    try { blobs = image.getJpegs().map(b => new Blob([b], { type: "image/jpeg" })); } catch (e2) { blobs = null; }
+    if (!blobs || !blobs.length) blobs = extractJpegFrames(buf);
+    if (!blobs[im.frame]) throw new Error("no JPEG data found");
+    const r = await decodeJpegBlob(blobs[im.frame], im.cols, im.rows, im.spp);
+    return { data: r.data, cols: r.cols, rows: r.rows, min: r.min, max: r.max, planar: false };
+  }
+}
+const loaded = []; // images whose pixels are in memory, oldest first
+const MAX_LOADED = 150;
+function ensurePixels(im) {
+  if (!im || im.data) return Promise.resolve(im);
+  if (im._p) return im._p;
+  im._p = (async () => {
+    try {
+      const buf = await storeFetch(fileUrl(S.scan, im.path), "open " + im.name, true);
+      Object.assign(im, await decodePixels(buf, im));
+      loaded.push(im);
+      const keep = new Set(panelImages());
+      for (let i = 0; loaded.length > MAX_LOADED && i < loaded.length;) {
+        if (keep.has(loaded[i])) { i++; continue; }
+        loaded.splice(i, 1)[0].data = null;
+      }
+    } catch (e) { im.err = e.message || String(e); }
+    im._p = null;
+    return im;
+  })();
+  return im._p;
+}
+// Image details only (no pixels): enough to sort into series and label everything.
+async function metaFromFile(buf, name, path) {
+  if (typeof daikon === "undefined" || !daikon.Series) throw new Error("DICOM decoder failed to load");
+  let image;
+  try { image = daikon.Series.parseImage(new DataView(buf)); } catch (e) { throw new Error("not a readable DICOM file"); }
+  if (!image) throw new Error("not a DICOM file");
+  if (!image.hasPixelData()) throw new Error("no image in file");
+  const cols = image.getCols(), rows = image.getRows();
+  if (!cols || !rows) throw new Error("no image in file");
+  const frames = Math.max(1, image.getNumberOfFrames() || 1);
+  const spp = image.getNumberOfSamplesPerPixel() === 3 ? 3 : 1;
+  const photo = String(image.getPhotometricInterpretation() || "").trim().toUpperCase();
+  // daikon inverts MONOCHROME1 values itself; keep raw values so the DICOM window applies, and invert at display time
+  if (photo === "MONOCHROME1") image.getPhotometricInterpretation = () => "MONOCHROME2";
+  const ps = image.getPixelSpacing();
+  const psr = num(ps && ps[0], 1), psc = num(ps && ps.length > 1 ? ps[1] : ps && ps[0], psr);
+  const pos = image.getImagePosition();
+  const base = {
+    name, cols, rows, spp,
+    uid: image.getSeriesInstanceUID() || ("nouid-" + (image.getSeriesNumber() || 0) + "-" + (image.getSeriesDescription() || "")),
+    sdesc: fixText(image.getSeriesDescription() || "").trim(),
+    snum: num(image.getSeriesNumber(), 0),
+    inst: num(image.getImageNumber(), 0),
+    sloc: num(image.getSliceLocation(), null),
+    pos: Array.isArray(pos) ? pos.map(Number) : null,
+    aspect: (psr > 0 && psc > 0) ? psr / psc : 1, // height of a pixel relative to its width
+    mmx: ps && psc > 0 ? psc : null, // mm per pixel across (for the ruler)
+    mono1: photo === "MONOCHROME1",
+    wc: num(image.getWindowCenter(), null), ww: num(image.getWindowWidth(), null),
+    date: fmtDate(image.getStudyDate()),
+    mod: String(image.getModality() || "").trim().toUpperCase(),
+    stime: fmtTime(tagText(image, 0x0008, 0x0030)),
+    atime: fmtTime(tagText(image, 0x0008, 0x0032)),
+    study: fixText(tagText(image, 0x0008, 0x1030)).trim(),
+    thick: num(image.getSliceThickness(), null),
+    orient: orientLabels(image.getImageDirections && image.getImageDirections()),
+    planar: spp === 3 && image.getPlanarConfig && image.getPlanarConfig() === 1,
+    path, frames, min: null, max: null,
+  };
+  return Array.from({ length: frames }, (_, f) => Object.assign({}, base, { frame: f }));
+}
+/* ================= series management ================= */
+function cmpImages(a, b) {
+  return (a.inst - b.inst) || ((a.sloc ?? 0) - (b.sloc ?? 0)) || (a.frame - b.frame) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+}
+function addImages(list) {
+  for (const im of list) {
+    let s = S.seriesByUid.get(im.uid);
+    if (!s) {
+      s = { uid: im.uid, desc: im.sdesc || ("Series " + (im.snum || S.series.length + 1)), hasDesc: !!im.sdesc, num: im.snum, images: [], wl: null, thumbDirty: true, btn: null };
+      S.seriesByUid.set(im.uid, s); S.series.push(s);
+      S.series.sort((a, b) => (a.num - b.num) || a.desc.localeCompare(b.desc));
+    }
+    s.images.push(im);
+    s.sortPending = true;
+    s.thumbDirty = true;
+    if (!S.meta.date && im.date) S.meta.date = im.date;
+    S.images++;
+  }
+}
+function sortSeries(s) {
+  if (!s.sortPending) return;
+  const keep = s === S.cur && S.userNav ? s.images[S.idx] : null;
+  s.images.sort(cmpImages);
+  s.sortPending = false;
+  if (keep) S.idx = s.images.indexOf(keep);
+}
+let uiQueued = false;
+function scheduleUI() {
+  if (uiQueued) return; uiQueued = true;
+  requestAnimationFrame(() => { uiQueued = false; refreshUI(); });
+}
+function refreshUI() {
+  S.series.forEach(sortSeries);
+  // until the user takes over, show the first image of the first series
+  if (!S.userNav && S.series.length && S.cur !== S.series[0]) selectSeries(S.series[0], true);
+  renderSeriesList();
+  updateSlider();
+  draw();
+  updateStatus();
+  if (!$("#grid").classList.contains("hidden")) buildGrid();
+}
+
+/* ================= series thumbnails ================= */
+function seriesTitle(s, sep) { return s.num && s.hasDesc ? (sep === ":" ? "Series " + s.num + ": " : s.num + " · ") + s.desc : s.desc; }
+function renderSeriesList() {
+  const box = $("#series");
+  S.series.forEach((s, i) => {
+    if (!s.btn) {
+      const b = el("button", "th");
+      const c = el("canvas"); c.width = 96; c.height = 96;
+      const lb = el("span", "lb");
+      b.append(c, lb);
+      b.onclick = () => { S.userNav = true; stopPlay(); selectSeries(s); };
+      s.btn = b; s.thumb = c; s.label = lb;
+    }
+    if (box.children[i] !== s.btn) box.insertBefore(s.btn, box.children[i] || null);
+    s.btn.classList.toggle("on", s === S.cur);
+    s.label.innerHTML = "";
+    s.label.append(document.createTextNode(seriesTitle(s) + " "), el("span", "ct", "(" + s.images.length + ")"));
+    s.btn.title = s.desc + " — " + s.images.length + " images";
+    if (s.thumbDirty) { s.thumbDirty = false; drawThumb(s.thumb, s.images[Math.floor(s.images.length / 2)], s); }
+  });
+}
+function drawThumb(canvas, im, s) {
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if (!im) return;
+  if (!im.data) { if (!im.err) ensurePixels(im).then(() => { if (im.data) drawThumb(canvas, im, s); }); return; }
+  const wl = (s && s.wl) || defaultWL(im);
+  const src = imageCanvas(im, wl.c, wl.w, false);
+  const iw = im.cols, ih = im.rows * im.aspect;
+  const sc = Math.min(canvas.width / iw, canvas.height / ih);
+  const w = iw * sc, h = ih * sc;
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(src, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h);
+}
+
+/* ================= rendering ================= */
+function defaultWL(im) {
+  if (im.ww != null && im.ww > 1 && im.wc != null) return { c: im.wc, w: im.ww };
+  if (im.min == null) return { c: 0, w: 1 };
+  const w = Math.max(1, im.max - im.min);
+  return { c: im.min + w / 2, w };
+}
+const scratch = { canvas: document.createElement("canvas"), key: null };
+function imageCanvas(im, wc, ww, invert, cache) {
+  const key = cache ? [im.name, im.frame, wc, ww, invert].join("|") : null;
+  const c = cache ? scratch.canvas : document.createElement("canvas");
+  if (cache && scratch.key === key && scratch.im === im) return c;
+  c.width = im.cols; c.height = im.rows;
+  const ctx = c.getContext("2d");
+  const id = ctx.createImageData(im.cols, im.rows);
+  const o = id.data, d = im.data, n = im.cols * im.rows;
+  const lo = wc - ww / 2, scale = 255 / Math.max(ww, 1e-6);
+  const inv = invert !== im.mono1;
+  if (im.spp === 1) {
+    if (!(d instanceof Float32Array)) {
+      // integer data: LUT over the value range
+      const mn = Math.floor(im.min), range = Math.ceil(im.max) - mn + 1;
+      const lut = new Uint8Array(range);
+      for (let v = 0; v < range; v++) { let g = ((v + mn) - lo) * scale; g = g < 0 ? 0 : g > 255 ? 255 : g; lut[v] = inv ? 255 - g : g; }
+      for (let i = 0, j = 0; i < n; i++, j += 4) { const g = lut[d[i] - mn] || 0; o[j] = o[j + 1] = o[j + 2] = g; o[j + 3] = 255; }
+    } else {
+      for (let i = 0, j = 0; i < n; i++, j += 4) { let g = (d[i] - lo) * scale; g = g < 0 ? 0 : g > 255 ? 255 : g; if (inv) g = 255 - g; o[j] = o[j + 1] = o[j + 2] = g; o[j + 3] = 255; }
+    }
+  } else {
+    for (let i = 0, j = 0; i < n; i++, j += 4) {
+      for (let k = 0; k < 3; k++) {
+        const v = im.planar ? d[k * n + i] : d[i * 3 + k];
+        let g = (v - lo) * scale; g = g < 0 ? 0 : g > 255 ? 255 : g; o[j + k] = invert ? 255 - g : g;
+      }
+      o[j + 3] = 255;
+    }
+  }
+  ctx.putImageData(id, 0, 0);
+  if (cache) { scratch.key = key; scratch.im = im; }
+  return c;
+}
+const cv = $("#cv");
+function curImage() { return S.cur ? S.cur.images[S.idx] : null; }
+function curWL() { const im = curImage(); return (S.cur && S.cur.wl) || (im ? defaultWL(im) : { c: 0, w: 1 }); }
+function panels() { // canvas rectangles (device px) of the visible panels
+  const W = cv.width, H = cv.height;
+  return S.dual ? [{ x: 0, y: 0, w: Math.floor(W / 2), h: H }, { x: Math.ceil(W / 2), y: 0, w: W - Math.ceil(W / 2), h: H }] : [{ x: 0, y: 0, w: W, h: H }];
+}
+function geometry(im, p) {
+  im = im || curImage(); if (!im) return null;
+  p = p || panels()[0];
+  const iw = im.cols, ih = im.rows * im.aspect;
+  const fit = Math.min(p.w / iw, p.h / ih) * 0.98;
+  const sc = fit * S.view.zoom;
+  const w = iw * sc, h = ih * sc;
+  const dpr = window.devicePixelRatio || 1;
+  return { x: p.x + (p.w - w) / 2 + S.view.px * dpr, y: p.y + (p.h - h) / 2 + S.view.py * dpr, w, h, fit };
+}
+function panelImages() { // images shown in each panel: current, and the next one in two-panel mode
+  if (!S.cur) return [];
+  const a = S.cur.images;
+  return S.dual ? [a[S.idx], a[S.idx + 1] || null] : [a[S.idx]];
+}
+// Centimetre rulers along the right and bottom edges of a panel, like the CD viewer.
+function drawRulers(ctx, im, g, p, dpr) {
+  if (!im.mmx) return;
+  const pxPerMm = g.w / im.cols / im.mmx; // screen px per mm (pixel aspect already in g)
+  const pick = lim => [10, 5, 2, 1].find(cm => cm * 10 * pxPerMm <= lim) || 0;
+  ctx.save();
+  ctx.strokeStyle = ctx.fillStyle = "#fff";
+  ctx.lineWidth = Math.max(1, dpr);
+  ctx.shadowColor = "#000"; ctx.shadowBlur = 3 * dpr;
+  ctx.font = (10 * dpr) + "px system-ui, sans-serif";
+  const ruler = (cm, vertical) => {
+    const len = cm * 10 * pxPerMm;
+    const x0 = vertical ? p.x + p.w - 34 * dpr : p.x + (p.w - len) / 2;
+    const y0 = vertical ? p.y + (p.h - len) / 2 : p.y + p.h - 50 * dpr;
+    ctx.beginPath();
+    if (vertical) { ctx.moveTo(x0, y0); ctx.lineTo(x0, y0 + len); } else { ctx.moveTo(x0, y0); ctx.lineTo(x0 + len, y0); }
+    for (let i = 0; i <= cm; i++) {
+      const d = i * 10 * pxPerMm, t = (i % 5 === 0 ? 9 : 5) * dpr;
+      if (vertical) { ctx.moveTo(x0, y0 + d); ctx.lineTo(x0 - t, y0 + d); } else { ctx.moveTo(x0 + d, y0); ctx.lineTo(x0 + d, y0 - t); }
+      if (i % 5 === 0 && cm >= 5) {
+        if (vertical) ctx.fillText(String(i), x0 + 3 * dpr, y0 + d + 3 * dpr); else ctx.fillText(String(i), x0 + d - 3 * dpr, y0 + 12 * dpr);
+      }
+    }
+    ctx.stroke();
+    if (vertical) ctx.fillText("cm", x0 - 6 * dpr, y0 + len + 24 * dpr); else ctx.fillText("cm", x0 + len + 6 * dpr, y0 + 4 * dpr);
+  };
+  const v = pick(p.h * 0.6), h = pick(p.w * 0.5);
+  if (v) ruler(v, true);
+  if (h) ruler(h, false);
+  ctx.restore();
+}
+let drawQueued = false;
+function draw() { if (drawQueued) return; drawQueued = true; requestAnimationFrame(() => { drawQueued = false; drawNow(); }); }
+function drawNow() {
+  const dpr = window.devicePixelRatio || 1;
+  const r = cv.getBoundingClientRect();
+  const W = Math.max(1, Math.round(r.width * dpr)), H = Math.max(1, Math.round(r.height * dpr));
+  if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+  const ctx = cv.getContext("2d");
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+  const ims = panelImages();
+  if (!ims[0]) { updateOverlay(); return; }
+  const wl = curWL();
+  panels().forEach((p, i) => {
+    const im = ims[i]; if (!im) return;
+    if (!im.data) { // pixels not read yet: show a note and draw again when ready
+      ctx.fillStyle = "#9aa0aa"; ctx.font = (15 * dpr) + "px system-ui, sans-serif"; ctx.textAlign = "center";
+      ctx.fillText(im.err ? "Could not open this image" : "Opening image…", p.x + p.w / 2, p.y + p.h / 2); ctx.textAlign = "start";
+      if (!im.err) ensurePixels(im).then(() => draw());
+      return;
+    }
+    const src = imageCanvas(im, wl.c, wl.w, S.invert, i === 0);
+    const g = geometry(im, p);
+    ctx.save(); ctx.beginPath(); ctx.rect(p.x, p.y, p.w, p.h); ctx.clip();
+    ctx.imageSmoothingEnabled = g.w / im.cols < 3;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(src, g.x, g.y, g.w, g.h);
+    drawRulers(ctx, im, g, p, dpr);
+    ctx.restore();
+  });
+  if (S.dual) { ctx.fillStyle = "#e0413b"; ctx.fillRect(Math.floor(W / 2) - Math.max(1, dpr) / 2, 0, Math.max(1, dpr), H); }
+  updateOverlay();
+  // read the next few images ahead so scrolling stays smooth
+  const a = S.cur.images;
+  for (const d of [1, -1, 2, 3, -2, 4, 5]) { const n = a[S.idx + d + (S.dual ? 1 : 0)]; if (n && !n.data && !n.err) ensurePixels(n); }
+}
+// Edge labels from Image Orientation (Patient): patient axes are x = Left, y = Posterior, z = Head.
+function orientLabels(d) {
+  d = Array.isArray(d) ? d.map(Number) : [];
+  if (d.length < 6 || d.some(v => !isFinite(v))) return null;
+  const name = v => [[v[0], "L", "R"], [v[1], "P", "A"], [v[2], "H", "F"]]
+    .filter(c => Math.abs(c[0]) > 0.3).sort((a, b) => Math.abs(b[0]) - Math.abs(a[0]))
+    .map(c => c[0] > 0 ? c[1] : c[2]).join("");
+  const row = d.slice(0, 3), col = d.slice(3, 6), neg = v => v.map(x => -x);
+  return { right: name(row), left: name(neg(row)), bottom: name(col), top: name(neg(col)) };
+}
+function fillPanel(pan, im, n) {
+  const q = c => pan.querySelector("." + c);
+  const lines = (e, arr) => { e.innerHTML = ""; arr.filter(Boolean).forEach(t => e.appendChild(el("div", null, t))); };
+  const o = im && im.orient;
+  q("t").textContent = o ? o.top : ""; q("b").textContent = o ? o.bottom : "";
+  q("l").textContent = o ? o.left : ""; q("r").textContent = o ? o.right : "";
+  if (!im) { ["tl", "tr", "bl", "br"].forEach(c => q(c).textContent = ""); return; }
+  const s = S.cur, wl = curWL();
+  lines(q("tl"), [im.study, seriesTitle(s, ":"), "Image " + (n + 1) + " of " + s.images.length + (im.frame ? " (frame " + (im.frame + 1) + ")" : ""),
+    im.inst ? "Instance " + im.inst : "", im.thick ? "Thickness " + im.thick.toFixed(1) + " mm" : ""]);
+  lines(q("tr"), [((im.date || S.meta.date) + " " + (im.stime || "")).trim(), im.atime ? "Acquired " + im.atime : ""]);
+  lines(q("bl"), ["W " + Math.round(wl.w) + " / L " + Math.round(wl.c) + (S.invert ? " · inverted" : ""), "Zoom " + Math.round(S.view.zoom * 100) + "%"]);
+  let loc = "";
+  if (im.sloc != null) loc = "Slice " + im.sloc.toFixed(1) + " mm";
+  else if (im.pos && im.pos.length === 3) loc = "Pos " + im.pos.map(v => v.toFixed(1)).join(", ");
+  lines(q("br"), [loc, im.cols + " × " + im.rows]);
+}
+function updateOverlay() {
+  const ims = panelImages();
+  $("#presetSel").hidden = !(ims[0] && ims[0].mod === "CT");
+  fillPanel($("#pan0"), ims[0] || null, S.idx);
+  fillPanel($("#pan1"), S.dual ? ims[1] || null : null, S.idx + 1);
+}
+
+/* ================= navigation ================= */
+function selectSeries(s, keepView) {
+  if (!s) return;
+  sortSeries(s);
+  const prev = S.cur;
+  S.cur = s;
+  if (prev !== s) S.idx = 0;
+  if (!keepView) S.view = { zoom: 1, px: 0, py: 0 };
+  renderSeriesList();
+  if (s.btn) s.btn.scrollIntoView({ block: "nearest", inline: "nearest" });
+  updateSlider(); draw();
+  if (!$("#grid").classList.contains("hidden")) buildGrid();
+}
+function go(i) {
+  if (!S.cur) return;
+  const n = S.cur.images.length; if (!n) return;
+  S.idx = clamp(i, 0, n - 1);
+  updateSlider(); draw();
+}
+function step(d) { go(S.idx + d); }
+function seriesStep(d) {
+  if (!S.cur) return;
+  const i = S.series.indexOf(S.cur);
+  const t = S.series[clamp(i + d, 0, S.series.length - 1)];
+  if (t !== S.cur) { stopPlay(); selectSeries(t); }
+}
+function updateSlider() {
+  const sl = $("#slider"), n = S.cur ? S.cur.images.length : 0;
+  sl.max = Math.max(0, n - 1); sl.value = S.idx; sl.disabled = n < 2;
+  $("#sliderLbl").textContent = n ? (S.idx + 1) + " / " + n : "0 / 0";
+}
+$("#slider").addEventListener("input", e => { S.userNav = true; stopPlay(); go(+e.target.value); });
+
+function togglePlay() { S.playing ? stopPlay() : startPlay(); }
+function startPlay() {
+  S.userNav = true;
+  if (!S.cur || S.cur.images.length < 2) return;
+  S.playing = true; $("#playBtn").textContent = "Pause"; $("#playBtn").classList.add("on");
+  S.playT = setInterval(() => { const n = S.cur.images.length; go((S.idx + 1) % n); }, 100);
+}
+function stopPlay() {
+  if (!S.playing) return;
+  S.playing = false; clearInterval(S.playT); $("#playBtn").textContent = "Play"; $("#playBtn").classList.remove("on");
+}
+function toggleInvert() { S.invert = !S.invert; $("#invBtn").classList.toggle("on", S.invert); draw(); }
+function resetView() {
+  S.view = { zoom: 1, px: 0, py: 0 };
+  if (S.cur) S.cur.wl = null;
+  if (S.invert) toggleInvert();
+  if (S.cur) { S.cur.thumbDirty = true; renderSeriesList(); }
+  draw();
+}
+function setTool(t) {
+  S.tool = t;
+  document.querySelectorAll("#toolSeg button").forEach(b => b.classList.toggle("on", b.dataset.tool === t));
+}
+document.querySelectorAll("#toolSeg button").forEach(b => b.onclick = () => setTool(b.dataset.tool));
+$("#playBtn").onclick = togglePlay;
+$("#invBtn").onclick = toggleInvert;
+$("#resetBtn").onclick = resetView;
+$("#gridBtn").onclick = () => openGrid();
+$("#presetSel").onchange = e => {
+  const v = e.target.value; if (!v || !S.cur) return;
+  const [c, w] = v.split(",").map(Number); S.cur.wl = { c, w }; e.target.value = ""; draw();
+};
+function toggleDual() { S.dual = !S.dual; $("#stage").classList.toggle("dual", S.dual); $("#dualBtn").classList.toggle("on", S.dual); draw(); }
+$("#dualBtn").onclick = toggleDual;
+$("#shareBtn").onclick = async () => {
+  const url = viewerLink(S.scan);
+  if (navigator.share && matchMedia("(pointer:coarse)").matches) {
+    try { await navigator.share({ title: "MRI images", url }); return; } catch (e) { if (e.name === "AbortError") return; }
+  }
+  toast(await copyText(url) ? "Link copied" : url);
+};
+
+/* ================= pointer interaction ================= */
+const stage = $("#stage");
+const ptrs = new Map();
+let drag = null, pinch = null, lastTap = { t: 0, x: 0, y: 0 };
+stage.addEventListener("contextmenu", e => e.preventDefault());
+stage.addEventListener("pointerdown", e => {
+  if (!curImage()) return;
+  S.userNav = true;
+  stage.setPointerCapture(e.pointerId);
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (ptrs.size === 2) {
+    stopPlay();
+    const [a, b] = [...ptrs.values()];
+    pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, zoom: S.view.zoom, px: S.view.px, py: S.view.py };
+    drag = null; return;
+  }
+  if (ptrs.size > 2) return;
+  let tool = S.tool;
+  if (e.button === 2) tool = "contrast"; else if (e.button === 1) tool = "move";
+  const wl = curWL(), im = curImage();
+  drag = { tool, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, idx: S.idx, acc: 0, wl: { c: wl.c, w: wl.w },
+    range: Math.max(1, (im.max - im.min) || 1000), zoom: S.view.zoom, px: S.view.px, py: S.view.py, moved: false, t: performance.now() };
+  if (tool === "scroll") stopPlay();
+});
+stage.addEventListener("pointermove", e => {
+  if (!ptrs.has(e.pointerId)) return;
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pinch && ptrs.size >= 2) {
+    const [a, b] = [...ptrs.values()];
+    const d = Math.hypot(a.x - b.x, a.y - b.y) || 1, mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    zoomAt(pinch.zoom * d / pinch.d, pinch.mx, pinch.my, pinch);
+    S.view.px += mx - pinch.mx; S.view.py += my - pinch.my;
+    draw(); return;
+  }
+  if (!drag) return;
+  const dx = e.clientX - drag.x0, dy = e.clientY - drag.y0;
+  if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+  switch (drag.tool) {
+    case "scroll": {
+      const n = S.cur.images.length;
+      const stepPx = clamp(stage.clientHeight / Math.max(n, 1), 4, 18);
+      go(drag.idx + Math.round(dy / stepPx));
+      break;
+    }
+    case "contrast": {
+      const k = drag.range / 400;
+      S.cur.wl = { w: Math.max(1, drag.wl.w + dx * k), c: drag.wl.c - dy * k };
+      draw(); break;
+    }
+    case "move": S.view.px = drag.px + dx; S.view.py = drag.py + dy; draw(); break;
+    case "zoom": zoomAt(drag.zoom * Math.exp(-dy * 0.01), drag.x0, drag.y0, drag); draw(); break;
+  }
+});
+function endPtr(e) {
+  if (!ptrs.has(e.pointerId)) return;
+  ptrs.delete(e.pointerId);
+  if (ptrs.size < 2) pinch = null;
+  if (drag && drag.tool === "contrast" && S.cur && S.cur.wl) { S.cur.thumbDirty = true; renderSeriesList(); }
+  if (drag && !drag.moved && e.type === "pointerup" && performance.now() - drag.t < 300) {
+    const now = performance.now();
+    if (now - lastTap.t < 320 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) { resetView(); lastTap.t = 0; }
+    else lastTap = { t: now, x: e.clientX, y: e.clientY };
+  }
+  if (ptrs.size === 0) drag = null;
+  else if (ptrs.size === 1 && !drag) { // continue as one-finger after pinch without jumping
+    const [p] = [...ptrs.values()];
+    drag = { tool: "move", x0: p.x, y0: p.y, px: S.view.px, py: S.view.py, moved: true, t: 0 };
+  }
+}
+stage.addEventListener("pointerup", endPtr);
+stage.addEventListener("pointercancel", endPtr);
+function zoomAt(z, cx, cy, from) {
+  z = clamp(z, 0.25, 20);
+  const r = stage.getBoundingClientRect();
+  const pw = S.dual ? r.width / 2 : r.width, px0 = S.dual && cx - r.left > pw ? pw : 0;
+  const ox = cx - r.left - px0 - pw / 2, oy = cy - r.top - r.height / 2; // point relative to its panel's centre
+  // keep the image point under (cx,cy) fixed
+  const f = z / from.zoom;
+  S.view.zoom = z;
+  S.view.px = ox - (ox - from.px) * f;
+  S.view.py = oy - (oy - from.py) * f;
+}
+let wheelAcc = 0;
+stage.addEventListener("wheel", e => {
+  e.preventDefault();
+  if (!curImage()) return;
+  S.userNav = true;
+  if (e.ctrlKey) { // trackpad pinch
+    zoomAt(S.view.zoom * Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY, { zoom: S.view.zoom, px: S.view.px, py: S.view.py });
+    draw(); return;
+  }
+  stopPlay();
+  const d = e.deltaMode === 1 ? e.deltaY * 30 : e.deltaY;
+  wheelAcc += d;
+  const unit = Math.abs(d) >= 50 ? 50 : 25;
+  while (Math.abs(wheelAcc) >= unit) { step(Math.sign(wheelAcc)); wheelAcc -= Math.sign(wheelAcc) * unit; }
+}, { passive: false });
+new ResizeObserver(() => draw()).observe(stage);
+
+/* ================= keyboard ================= */
+document.addEventListener("keydown", e => {
+  if ($("#app").classList.contains("hidden") || e.target.tagName === "INPUT" && e.target.type !== "range") return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const gridOpen = !$("#grid").classList.contains("hidden");
+  const k = e.key;
+  S.userNav = true;
+  let handled = true;
+  if (k === "ArrowUp" || k === "ArrowLeft") { stopPlay(); step(-1); }
+  else if (k === "ArrowDown" || k === "ArrowRight") { stopPlay(); step(1); }
+  else if (k === "PageUp") seriesStep(-1);
+  else if (k === "PageDown") seriesStep(1);
+  else if (k === "Home") { stopPlay(); go(0); }
+  else if (k === "End") { stopPlay(); go(1e9); }
+  else if (k === " ") togglePlay();
+  else if (k === "i" || k === "I") toggleInvert();
+  else if (k === "r" || k === "R") resetView();
+  else if (k === "g" || k === "G") gridOpen ? closeGrid() : openGrid();
+  else if (k === "2") toggleDual();
+  else if (k === "Escape") { closeGrid(); $("#failSheet").classList.add("hidden"); }
+  else handled = false;
+  if (handled) { e.preventDefault(); if (gridOpen && k.startsWith("Arrow")) buildGrid(); }
+});
+
+/* ================= all-images grid ================= */
+let gridObs = null;
+function openGrid() { if (!S.cur) return; stopPlay(); $("#grid").classList.remove("hidden"); buildGrid(true); }
+function closeGrid() { $("#grid").classList.add("hidden"); $("#gridBody").innerHTML = ""; if (gridObs) gridObs.disconnect(); }
+$("#gClose").onclick = closeGrid;
+$("#gCur").onclick = () => { S.gridAll = false; buildGrid(true); };
+$("#gAll").onclick = () => { S.gridAll = true; buildGrid(true); };
+let gridSig = "";
+function buildGrid(force) {
+  $("#gCur").classList.toggle("on", !S.gridAll); $("#gAll").classList.toggle("on", S.gridAll);
+  const list = S.gridAll ? S.series : [S.cur];
+  const sig = (S.gridAll ? "A" : S.cur.uid) + ":" + list.map(s => s.images.length).join(",");
+  const body = $("#gridBody");
+  if (!force && sig === gridSig) { // only move the highlight
+    body.querySelectorAll(".gi.on").forEach(x => x.classList.remove("on"));
+    const cur = body.querySelector('.gi[data-s="' + S.series.indexOf(S.cur) + '"][data-i="' + S.idx + '"]');
+    if (cur) { cur.classList.add("on"); cur.scrollIntoView({ block: "nearest" }); }
+    return;
+  }
+  gridSig = sig;
+  const scrollTop = force ? null : body.scrollTop;
+  if (gridObs) gridObs.disconnect();
+  gridObs = new IntersectionObserver(entries => entries.forEach(en => {
+    if (!en.isIntersecting || en.target._drawn) return;
+    en.target._drawn = true;
+    const s = S.series[+en.target.dataset.s], im = s.images[+en.target.dataset.i];
+    drawThumb(en.target.firstChild, im, s);
+  }), { root: body, rootMargin: "300px" });
+  body.innerHTML = "";
+  $("#gridTitle").textContent = S.gridAll ? "All series (" + S.images + " images)" : S.cur.desc + " (" + S.cur.images.length + ")";
+  let active = null;
+  for (const s of list) {
+    sortSeries(s);
+    const si = S.series.indexOf(s);
+    if (S.gridAll) body.appendChild(el("div", "gh", seriesTitle(s) + " (" + s.images.length + ")"));
+    const g = el("div", "gg");
+    s.images.forEach((im, i) => {
+      const b = el("button", "gi");
+      b.dataset.s = si; b.dataset.i = i;
+      const c = el("canvas"); c.width = 160; c.height = 160;
+      b.append(c, el("span", null, String(i + 1)));
+      if (s === S.cur && i === S.idx) { b.classList.add("on"); active = b; }
+      b.onclick = () => { S.userNav = true; if (s !== S.cur) selectSeries(s); go(i); closeGrid(); };
+      g.appendChild(b); gridObs.observe(b);
+    });
+    body.appendChild(g);
+  }
+  if (scrollTop != null) body.scrollTop = scrollTop;
+  else if (active) active.scrollIntoView({ block: "center" });
+}
+
+/* ================= failures ================= */
+function addFailure(name, reason) { S.failed.push({ name, reason }); updateStatus(); }
+$("#failBtn").onclick = () => {
+  const box = $("#failList"); box.innerHTML = "";
+  S.failed.forEach(f => { const d = el("div", null, f.name + " "); d.appendChild(el("span", null, "— " + f.reason)); box.appendChild(d); });
+  $("#failTitle").textContent = S.failed.length + " not shown";
+  $("#failSheet").classList.remove("hidden");
+};
+$("#failClose").onclick = () => $("#failSheet").classList.add("hidden");
+$("#failSheet").onclick = e => { if (e.target.id === "failSheet") $("#failSheet").classList.add("hidden"); };
+
+/* ================= status / messages ================= */
+function updateStatus() {
+  let t;
+  const ns = S.series.length;
+  if (S.listing) t = "Finding files… " + S.total + " found" + (S.images ? " · " + S.images + " images shown" : "");
+  else if (S.done < S.total) t = "Loading " + S.done + " / " + S.total + " files · " + S.images + " images, " + ns + " series";
+  else t = S.images + " images · " + ns + " series";
+  $("#status").textContent = t;
+  const pct = S.total ? (S.done / S.total) * 100 : 0;
+  $("#bar").style.display = (!S.listing && S.done >= S.total) ? "none" : "";
+  $("#bar>i").style.width = (S.listing ? Math.min(pct, 10) : pct) + "%";
+  const busy = S.listing || S.done < S.total;
+  $("#loadBox").classList.toggle("done", !busy);
+  if (busy) {
+    $("#loadTxt").textContent = S.listing ? "Loading scan…" : "Loading images: " + S.done + " of " + S.total + " (" + Math.round(pct) + "%)";
+    $("#loadBar>i").style.width = (S.listing ? 5 : pct) + "%";
+  }
+  const fb = $("#failBtn");
+  fb.classList.toggle("hidden", !S.failed.length);
+  fb.textContent = S.failed.length + " not shown";
+  if (S.images && !$("#msg").classList.contains("error")) hideMsg();
+}
+function showMsg(title, text, opts) {
+  opts = opts || {};
+  const m = $("#msg");
+  m.className = opts.error ? "error" : "";
+  m.innerHTML = "";
+  const box = el("div", "box");
+  if (opts.spin) box.appendChild(el("div", "spin"));
+  box.appendChild(el("h2", null, title));
+  if (text) box.appendChild(el("p", null, text));
+  if (opts.retry) { const b = el("button", "on", "Try again"); b.onclick = () => location.reload(); box.appendChild(b); }
+  if (opts.setup) { const b = el("button", null, "Use another scan"); b.style.marginLeft = "8px"; b.onclick = () => { location.href = location.pathname; }; box.appendChild(b); }
+  m.appendChild(box);
+  m.style.display = "";
+}
+function hideMsg() { const m = $("#msg"); m.style.display = "none"; m.className = ""; }
+
+/* ================= loading pipeline ================= */
+function listScan(j, scan, onFile) {
+  // files.json: ["DICOM/…/IM0", …] or { "files": [...] }, paths relative to <scan>/
+  const paths = Array.isArray(j) ? j : (j && j.files) || [];
+  for (let p of paths) {
+    p = String(typeof p === "object" && p ? p.path : p).replace(/^\/+/, "");
+    if (p.startsWith(scan + "/")) p = p.slice(scan.length + 1);
+    const parts = p.split("/");
+    if (parts.slice(0, -1).some(d => SKIP_FOLDERS.includes(d.trim().toLowerCase()))) continue;
+    const f = { name: parts[parts.length - 1], path: p };
+    if (isDicomCandidate(f)) onFile(f);
+  }
+}
+
+function q404() { return new URLSearchParams(location.search).has("noimport"); }
+async function start(scan) {
+  S.scan = scan;
+  $("#setup").classList.add("hidden");
+  $("#app").classList.remove("hidden");
+  if (typeof daikon === "undefined" || !daikon.Series) { showMsg("Could not load the DICOM decoder", "The decoder script from cdn.jsdelivr.net did not load. Check the connection or content blockers and try again.", { error: true, retry: true }); return; }
+  showMsg("Opening scan…", "", { spin: true });
+  updateStatus();
+
+  // 1) fetch the file list (gives a clear error when the scan does not exist)
+  let list;
+  try {
+    list = await storeFetch(fileUrl(scan, "files.json"), "open the scan", false);
+  } catch (e) {
+    S.listing = false; $("#status").textContent = e.title || "Error";
+    if (e.status === 404 && !q404()) { location.replace("import.html?s=" + encodeURIComponent(scan)); return; } // first visit: copy the scan into storage
+    if (e.status === 404) showMsg("Scan not found", "There is no scan called \"" + scan + "\" on this site.", { error: true, setup: true });
+    else showMsg(e.title || "Error", e.detail || e.message, { error: true, retry: true });
+    return;
+  }
+  document.title = scan + " – MRI Viewer";
+
+  // 2) image details: from the device if this scan was opened before, otherwise read every file once
+  const cand = []; listScan(list, scan, f => cand.push(f));
+  const metaKey = "/meta/v2/" + encodeURIComponent(scan);
+  try {
+    const mc = await caches.open("scan-meta"); const hit = await mc.match(metaKey);
+    const m = hit && await hit.json();
+    if (m && m.n === cand.length && Array.isArray(m.images) && m.images.length) {
+      addImages(m.images); S.total = S.done = cand.length; S.listing = false;
+      refreshUI(); updateStatus(); S.series.forEach(s => s.thumbDirty = true); renderSeriesList();
+      return;
+    }
+  } catch (e) {}
+  const queue = [], retryLater = [];
+  let listingDone = false, wake = null;
+  const notify = () => { if (wake) { const w = wake; wake = null; w(); } };
+  const onFile = f => { queue.push(f); S.total++; updateStatus(); notify(); };
+  let decodeChain = Promise.resolve(), lastYield = performance.now();
+  async function worker() {
+    for (;;) {
+      if (!queue.length) {
+        if (listingDone) return;
+        await new Promise(r => { const prev = wake; wake = () => { r(); prev && prev(); }; });
+        continue;
+      }
+      const f = queue.shift();
+      let buf;
+      try {
+        buf = await storeFetch(fileUrl(scan, f.path), "download " + f.name, true);
+      } catch (e) {
+        if (!f.retried) { f.retried = true; retryLater.push(f); continue; } // second, slower pass later
+        addFailure(f.path, "download failed: " + (e.title || e.message) + (e.status ? " (HTTP " + e.status + ")" : ""));
+        S.done++; updateStatus();
+        continue;
+      }
+      // decode one file at a time on the main thread, yielding between files
+      decodeChain = decodeChain.then(async () => {
+        try { const ims = await metaFromFile(buf, f.name, f.path); addImages(ims); }
+        catch (e) { addFailure(f.path, e.message || String(e)); }
+        buf = null; S.done++;
+        scheduleUI();
+        if (performance.now() - lastYield > 40) { await nextFrame(); lastYield = performance.now(); }
+      });
+      await decodeChain;
+    }
+  }
+  const workers = Array.from({ length: PARALLEL }, worker);
+  listScan(list, scan, onFile);
+  listingDone = true; S.listing = false; notify(); updateStatus();
+  await Promise.all(workers);
+  if (retryLater.length) { // retry failed downloads slowly, 2 at a time
+    await sleep(4000);
+    queue.push(...retryLater.splice(0));
+    await Promise.all([worker(), worker()]);
+  }
+  await decodeChain;
+  refreshUI();
+  if (!S.images) {
+    if (!S.total) showMsg("No DICOM files found", "The scan's file list contains no DICOM image files.", { error: true, setup: true });
+    else showMsg("No images could be shown", "None of the " + S.total + " files could be displayed. Tap \"" + S.failed.length + " not shown\" at the top for details.", { error: true, retry: true });
+  }
+  // refresh series thumbnails with the middle image now that everything has arrived
+  S.series.forEach(s => s.thumbDirty = true); renderSeriesList();
+  if (!S.failed.length && S.images) { // remember the image details so the next opening is instant
+    try {
+      const images = []; S.series.forEach(s => s.images.forEach(im => { const c = Object.assign({}, im); delete c.data; delete c._p; delete c.err; c.min = c.max = null; images.push(c); }));
+      await (await caches.open("scan-meta")).put(metaKey, new Response(JSON.stringify({ n: cand.length, images }), { headers: { "Content-Type": "application/json" } }));
+    } catch (e) {}
+  }
+}
+
+/* ================= boot ================= */
+(function boot() {
+  const q = new URLSearchParams(location.search);
+  const sc = q.get("s");
+  if (!sc) { showSetup(); return; }
+  if (!parseScan(sc)) { showSetup("The link contains an invalid scan name."); return; }
+  start(sc);
+})();
+</script>
+<script src="bg.js"></script>
+</body>
+</html>

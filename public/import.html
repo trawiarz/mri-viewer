@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
+<title>Preparing scan – MRI Viewer</title>
+<style>
+  body{margin:0;background:#111;color:#ddd;font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}
+  .card{max-width:520px;width:100%;background:#1b1d22;border:1px solid #2c2f36;border-radius:12px;padding:22px}
+  h1{font-size:19px;margin:0 0 8px}
+  #bar{height:8px;background:#2c2f36;border-radius:4px;overflow:hidden;margin:14px 0}
+  #bar i{display:block;height:100%;width:0;background:#4a90e2;transition:width .2s}
+  #err{color:#ff8a80;white-space:pre-wrap;font-size:13px;margin-top:10px;max-height:40vh;overflow:auto}
+  button{background:#4a90e2;color:#fff;border:0;border-radius:8px;padding:9px 16px;font:inherit;cursor:pointer;margin-top:10px}
+  a{color:#8ab4f8}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Preparing the scan</h1>
+  <div id="msg">Checking…</div>
+  <div id="bar"><i></i></div>
+  <div id="err"></div>
+  <button id="retry" hidden>Try again</button>
+</div>
+<script>
+const scan = new URLSearchParams(location.search).get("s") || "scan1";
+const api = "api/import?s=" + encodeURIComponent(scan);
+const $ = s => document.querySelector(s);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+let isDocs = false;
+const viewer = () => location.replace((isDocs ? "docs.html?s=" : "./?s=") + encodeURIComponent(scan));
+
+async function post(q) {
+  for (let a = 0; ; a++) {
+    try {
+      const r = await fetch(api + q, { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok || r.status === 409) return { ok: r.ok, status: r.status, j };
+      if (a >= 4) return { ok: false, status: r.status, j };
+    } catch (e) { if (a >= 4) return { ok: false, status: 0, j: { error: String(e) } }; }
+    await sleep(1500 * 2 ** a);
+  }
+}
+
+async function run() {
+  $("#retry").hidden = true; $("#err").textContent = "";
+  const res = await fetch(api, { cache: "no-store" });
+  const st = await res.json().catch(() => ({}));
+  if (res.status === 404) { $("#msg").textContent = "Scan \"" + scan + "\" not found."; return; }
+  if (!res.ok) { $("#msg").textContent = "Could not check the scan (HTTP " + res.status + ")."; $("#retry").hidden = false; return; }
+  isDocs = st.type === "docs";
+  if (st.complete) { $("#msg").textContent = "Ready – opening…"; return location.replace((isDocs ? "docs.html?s=" : "./?s=") + encodeURIComponent(scan) + "&noimport=1"); }
+  if (st.kind === "iso") return isoImport(st);
+  const total = st.total; let done = 0, next = 0, finished = false; const errors = [];
+  const show = () => { $("#msg").textContent = "Copying images to this site (first visit only): " + done + " / " + total; $("#bar i").style.width = (done / total * 100) + "%"; };
+  show();
+  async function worker() {
+    while (next < total && !finished) {
+      const i = next++;
+      const r = await post("&i=" + i);
+      if (r.status === 409 && r.j.complete) { finished = true; break; } // another visitor finished the import
+      if (!r.ok) errors.push((r.j.path || "#" + i) + ": " + (r.j.error || "HTTP " + r.status));
+      done++; show();
+    }
+  }
+  await Promise.all([worker(), worker(), worker(), worker()]);
+  if (finished) { $("#msg").textContent = "Ready – opening the viewer…"; return viewer(); }
+  if (errors.length) {
+    $("#err").textContent = errors.length + " file(s) failed:\n" + errors.join("\n");
+    $("#retry").hidden = false; return;
+  }
+  const f = await post("&finish=1");
+  if (!f.ok && !(f.j && f.j.complete)) {
+    $("#err").textContent = "Could not finish: " + JSON.stringify(f.j);
+    $("#retry").hidden = false; return;
+  }
+  $("#msg").textContent = "Done – opening the viewer…"; $("#bar i").style.width = "100%";
+  await sleep(600); viewer();
+}
+// Import from a CD image (.iso) on Google Drive: walk its folders, keep the DICOM files, copy them one by one.
+const SKIP_DIRS = ["jre", "lib", "bin", "viewer", "autorun", "program files", "java", "tools"];
+const SKIP_EXT = ["exe", "jar", "xml", "dll", "ini", "inf", "bat", "cmd", "sh", "properties", "ico", "gif", "htm", "html", "css", "js", "txt", "pdf", "jpg", "jpeg", "png", "doc", "docx", "zip", "lnk", "url", "cab", "msi", "sys", "dat", "cfg", "manifest", "chm", "hlp", "ttf", "bmp", "so", "class", "json", "log"];
+function extOf(n) { const m = /\.([^.\/]+)$/.exec(n || ""); if (!m) return ""; const e = m[1].toLowerCase(); return /^\d+$/.test(e) ? "" : e; }
+async function iso(op, body) {
+  for (let a = 0; ; a++) {
+    let last;
+    try {
+      const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 90000);
+      const r = await fetch("api/iso?op=" + op, { method: "POST", signal: ctl.signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.assign({ s: scan }, body)) });
+      clearTimeout(t);
+      const j = await r.json().catch(() => ({ error: "HTTP " + r.status }));
+      if (r.ok) { if (op === "dir") $("#err").textContent = ""; return j; }
+      last = new Error(j.error || "HTTP " + r.status);
+      if (r.status === 400 || r.status === 404) throw last;
+    } catch (e) { last = e.name === "AbortError" ? new Error("Google Drive did not answer within 90 s") : e; }
+    if (a >= 3) throw last;
+    if (op === "dir") $("#err").textContent = "Retrying (" + (a + 1) + "/3): " + last.message;
+    await sleep(1500 * 2 ** a);
+  }
+}
+async function isoImport(st) {
+  $("#msg").textContent = "Opening the CD image…";
+  const top = await iso("dir", {});
+  const files = [], seen = [];
+  let dirs = 0, active = 0;
+  const skipDir = n => SKIP_DIRS.includes(n.trim().toLowerCase());
+  // Hospital discs keep the images under a DICOM folder; the rest is viewer software. Walk only that when it exists.
+  let roots = top.entries.filter(e => e.dir && /^(dicom|images?|dcm)$/i.test(e.name.trim()));
+  const inDicom = roots.length > 0;
+  if (!inDicom) roots = top.entries.filter(e => e.dir && !skipDir(e.name));
+  const queue = roots.map(e => ({ e, path: [e.name] }));
+  const take = (entries, path) => {
+    for (const e of entries) {
+      if (e.dir) { if (!skipDir(e.name)) queue.push({ e, path: path.concat(e.name) }); continue; }
+      if (seen.length < 8) seen.push(path.concat(e.name).join("/"));
+      const e2 = extOf(e.name);
+      if (e.name.toUpperCase() === "DICOMDIR" || (!top.udf && !e.size)) continue;
+      if (["dcm", "dicom", "ima"].includes(e2) || (inDicom ? !SKIP_EXT.includes(e2) : !e2)) files.push(Object.assign({ path: path.concat(e.name).map(x => x.replace(/[^\w.\- ]+/g, "_")).join("/") }, e));
+    }
+  };
+  take(top.entries.filter(e => !e.dir), []);
+  const showWalk = () => { $("#msg").textContent = "Reading the CD… " + dirs + " folders, " + files.length + " images found"; };
+  async function walker() {
+    while (queue.length || active) {
+      if (!queue.length) { await sleep(100); continue; }
+      const { e, path } = queue.shift(); active++;
+      try { const sub = await iso("dir", top.udf ? { udf: top.udf, ref: e.ref } : { lba: e.lba, size: e.size, joliet: top.joliet }); take(sub.entries, path); }
+      finally { active--; dirs++; showWalk(); }
+    }
+  }
+  showWalk();
+  await Promise.all(Array.from({ length: 8 }, walker));
+  if (!files.length) throw new Error("No scan images found on this CD (" + dirs + " folders looked at). Files seen: " + (seen.join(", ") || "none"));
+  const where = f => top.udf ? { udf: top.udf, ref: f.ref } : { lba: f.lba, size: f.size };
+  let info = {}; try { info = await iso("peek", where(files[0])); } catch (e) {}
+  const MOD = { CT: "ct", MR: "mri", CR: "xray", DX: "xray", DR: "xray", RG: "xray", XA: "xray", RF: "xray", MG: "xray", PX: "xray" };
+  const type = MOD[(info.modality || "").toUpperCase()] || st.type;
+  const date = st.date || (/^\d{8}$/.test(info.date || "") ? info.date.slice(0, 4) + "-" + info.date.slice(4, 6) + "-" + info.date.slice(6, 8) : "");
+  const title = (info.desc && info.desc.length > 2 ? info.desc : st.title).slice(0, 120);
+  let done = 0, next = 0; const errors = [];
+  const show = () => { $("#msg").textContent = "Copying images from the CD (first visit only): " + done + " / " + files.length; $("#bar i").style.width = (done / files.length * 100) + "%"; };
+  show();
+  const worker = async () => { while (next < files.length) { const f = files[next++]; try { await iso("copy", Object.assign({ path: f.path }, where(f))); } catch (e) { errors.push(f.path + ": " + e.message); } done++; show(); } };
+  await Promise.all(Array.from({ length: 12 }, worker));
+  if (errors.length) { $("#err").textContent = errors.length + " file(s) failed – press Try again (copied files are kept):\n" + errors.slice(0, 30).join("\n"); $("#retry").hidden = false; return; }
+  const finish = async () => {
+    $("#err").textContent = ""; $("#retry").hidden = true; $("#msg").textContent = "Saving…";
+    let r;
+    for (let a = 0; a < 4; a++) {
+      try { r = await fetch("api/upload?s=" + encodeURIComponent(scan) + "&finish=1", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, title, date, files: files.map(f => f.path) }) }); if (r.ok || r.status === 409) break; } catch (e) { r = null; }
+      await sleep(2000 * 2 ** a);
+    }
+    if (!r || !r.ok) { pendingFinish = finish; $("#err").textContent = "Could not finish: " + (r ? await r.text() : "network error") + " – press Try again"; $("#retry").hidden = false; return false; }
+    return true;
+  };
+  if (!(await finish())) return;
+  $("#msg").textContent = "Done – opening the viewer…"; $("#bar i").style.width = "100%";
+  await sleep(600); viewer();
+}
+let pendingFinish = null;
+$("#retry").onclick = () => (pendingFinish ? pendingFinish().then(ok => { if (ok) { pendingFinish = null; viewer(); } }) : run()).catch(e => { $("#err").textContent = String(e); $("#retry").hidden = false; });
+run().catch(e => { $("#err").textContent = String(e); $("#retry").hidden = false; });
+</script>
+</body>
+</html>
