@@ -34,6 +34,15 @@ button:disabled{opacity:.45;cursor:default}
 .card input:focus{outline:none;border-color:var(--accent)}
 .row{display:flex;gap:8px;flex-wrap:wrap}
 .row button{flex:1 1 auto}
+.cats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}
+.cats button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:16px;border-radius:12px;font-size:15px;text-align:left}
+.cats button b{font-size:19px}.cats button span{font-size:12.5px;color:var(--muted)}
+.cats button.on{border-color:var(--accent);background:#17324d}
+#catTitle{font-size:15px;margin:6px 0 8px}
+#studyList a{display:block;padding:11px 12px;margin-bottom:8px;border:1px solid var(--line);border-radius:10px;background:#0b0c0e;color:inherit;text-decoration:none}
+#studyList a:hover{border-color:var(--accent)}
+#studyList small{display:block;color:var(--muted);margin-top:2px}
+.note a{color:var(--accent)}
 #genOut{margin-top:14px;word-break:break-all;background:#0b0c0e;border:1px solid var(--line);border-radius:8px;padding:10px 12px}
 #genOut a{color:var(--accent)}
 .err{color:var(--bad);margin-top:8px;min-height:1em}
@@ -43,6 +52,8 @@ button:disabled{opacity:.45;cursor:default}
 #app{height:100%;height:100dvh;display:grid;
   grid-template-columns:1fr;grid-template-rows:auto auto 1fr auto auto;
   grid-template-areas:"top" "series" "stage" "slider" "tools"}
+#homeBtn{color:var(--accent);text-decoration:none;white-space:nowrap;font-size:13px}
+#presetSel{background:var(--panel2);color:inherit;border:1px solid var(--line);border-radius:8px;padding:6px}
 #top{grid-area:top;display:flex;align-items:center;gap:8px;padding:6px 10px;padding-top:max(6px,env(safe-area-inset-top));
   background:var(--panel);border-bottom:1px solid var(--line);min-height:40px}
 #status{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted);font-size:13px}
@@ -130,26 +141,24 @@ button:disabled{opacity:.45;cursor:default}
 <body>
 
 <div id="setup" class="hidden">
-  <div class="card">
-    <h1>MRI Viewer</h1>
-    <p>Enter the name of a scan stored on this site (for example <b>scan1</b>).</p>
-    <input id="linkIn" type="text" autocomplete="off" spellcheck="false"
-      placeholder="scan1">
-    <div class="row">
-      <button id="genBtn" class="on">Create viewer link</button>
-      <button id="openBtn">Open</button>
+  <div class="card home">
+    <h1>Medical records</h1>
+    <div class="cats" id="cats">
+      <button data-type="mri"><b>MRI</b><span></span></button>
+      <button data-type="ct"><b>CT</b><span></span></button>
+      <button data-type="xray"><b>X-ray</b><span></span></button>
+      <button data-type="docs"><b>Documents</b><span></span></button>
     </div>
+    <h2 id="catTitle"></h2>
+    <div id="studyList"></div>
     <div class="err" id="setupErr"></div>
-    <div id="genOut" class="hidden">
-      <a id="genLink" href="#" target="_self"></a>
-      <div class="row" style="margin-top:10px"><button id="copyBtn">Copy link</button></div>
-    </div>
-    <div class="note">Images are downloaded from this site straight into your browser; nothing is uploaded anywhere.</div>
+    <div class="note"><a href="upload.html">Upload new scans or documents</a></div>
   </div>
 </div>
 
 <div id="app" class="hidden">
   <div id="top">
+    <a id="homeBtn" href="./" title="All records">&#8592; Records</a>
     <div id="status">Starting…</div>
     <div id="bar"><i></i></div>
     <button id="failBtn" class="hidden"></button>
@@ -176,6 +185,10 @@ button:disabled{opacity:.45;cursor:default}
     <button id="playBtn" title="Play / pause (Space)">Play</button>
     <button id="invBtn" title="Invert (I)">Invert</button>
     <button id="resetBtn" title="Reset view and contrast (R, double-click)">Reset</button>
+    <select id="presetSel" hidden title="CT window presets">
+      <option value="">Window…</option><option value="40,80">Brain</option><option value="50,400">Soft tissue</option>
+      <option value="-600,1500">Lung</option><option value="400,1800">Bone</option><option value="200,600">Angio</option><option value="75,215">Stroke</option>
+    </select>
     <button id="dualBtn" title="Two panels: this image and the next one (2)">2 panels</button>
     <button id="gridBtn" title="All images (G)">All images</button>
     <button id="shareBtn" title="Share link to this viewer">Share link</button>
@@ -233,23 +246,37 @@ async function copyText(t) {
 }
 
 /* ================= setup screen ================= */
-function showSetup(errText) {
+const CAT = { mri: "MRI", ct: "CT", xray: "X-ray", docs: "Documents" };
+function studyLink(e) { return e.type === "docs" ? "docs.html?s=" + encodeURIComponent(e.id) : "./?s=" + encodeURIComponent(e.id); }
+async function showSetup(errText) {
   $("#setup").classList.remove("hidden");
   $("#app").classList.add("hidden");
   $("#setupErr").textContent = errText || "";
-  const gen = () => {
-    const p = parseScan($("#linkIn").value);
-    if (!p) { $("#setupErr").textContent = "That doesn't look like a scan name (letters, digits, - and _)."; $("#genOut").classList.add("hidden"); return null; }
-    $("#setupErr").textContent = "";
-    const link = viewerLink(p);
-    $("#genLink").textContent = link; $("#genLink").href = link;
-    $("#genOut").classList.remove("hidden");
-    return link;
+  document.title = "Medical records";
+  let lib = [];
+  try { const r = await fetch("api/library", { cache: "no-store" }); if (r.ok) lib = await r.json(); }
+  catch (e) { $("#setupErr").textContent = "Could not load the list (" + e.message + ")."; }
+  const pick = type => {
+    location.hash = type;
+    $("#cats").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.type === type));
+    const items = lib.filter(e => e.type === type).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    $("#catTitle").textContent = CAT[type] || "";
+    const box = $("#studyList"); box.innerHTML = "";
+    if (!items.length) box.appendChild(el("p", "note", "Nothing here yet."));
+    items.forEach(e => {
+      const a = el("a"); a.href = studyLink(e);
+      a.appendChild(el("span", null, e.title || e.id));
+      a.appendChild(el("small", null, [e.date, e.count ? e.count + (e.type === "docs" ? " file(s)" : " files") : ""].filter(Boolean).join(" · ")));
+      box.appendChild(a);
+    });
   };
-  $("#genBtn").onclick = gen;
-  $("#linkIn").onkeydown = e => { if (e.key === "Enter") gen(); };
-  $("#openBtn").onclick = () => { const l = gen(); if (l) location.href = l; };
-  $("#copyBtn").onclick = async () => { const l = gen(); if (l && await copyText(l)) toast("Link copied"); };
+  $("#cats").querySelectorAll("button").forEach(b => {
+    const n = lib.filter(e => e.type === b.dataset.type).length;
+    const word = b.dataset.type === "docs" ? ["document", "documents"] : ["study", "studies"];
+    b.querySelector("span").textContent = n ? n + " " + word[n === 1 ? 0 : 1] : "none yet";
+    b.onclick = () => pick(b.dataset.type);
+  });
+  pick(CAT[location.hash.slice(1)] ? location.hash.slice(1) : "mri");
 }
 
 /* ================= file store ================= */
@@ -400,6 +427,7 @@ async function decodeFile(buf, name) {
     mono1: photo === "MONOCHROME1",
     wc: num(image.getWindowCenter(), null), ww: num(image.getWindowWidth(), null),
     date: fmtDate(image.getStudyDate()),
+    mod: String(image.getModality() || "").trim().toUpperCase(),
     stime: fmtTime(tagText(image, 0x0008, 0x0030)),
     atime: fmtTime(tagText(image, 0x0008, 0x0032)),
     study: String(tagText(image, 0x0008, 0x1030)).trim(),
@@ -654,6 +682,7 @@ function fillPanel(pan, im, n) {
 }
 function updateOverlay() {
   const ims = panelImages();
+  $("#presetSel").hidden = !(ims[0] && ims[0].mod === "CT");
   fillPanel($("#pan0"), ims[0] || null, S.idx);
   fillPanel($("#pan1"), S.dual ? ims[1] || null : null, S.idx + 1);
 }
@@ -719,6 +748,10 @@ $("#playBtn").onclick = togglePlay;
 $("#invBtn").onclick = toggleInvert;
 $("#resetBtn").onclick = resetView;
 $("#gridBtn").onclick = () => openGrid();
+$("#presetSel").onchange = e => {
+  const v = e.target.value; if (!v || !S.cur) return;
+  const [c, w] = v.split(",").map(Number); S.cur.wl = { c, w }; e.target.value = ""; draw();
+};
 function toggleDual() { S.dual = !S.dual; $("#stage").classList.toggle("dual", S.dual); $("#dualBtn").classList.toggle("on", S.dual); draw(); }
 $("#dualBtn").onclick = toggleDual;
 $("#shareBtn").onclick = async () => {
