@@ -56,6 +56,9 @@ button:disabled{opacity:.45;cursor:default}
 #homeBtn{color:#fff;background:var(--accent);text-decoration:none;white-space:nowrap;font-size:17px;font-weight:600;padding:10px 16px;border-radius:10px;flex:none}
 #saveInfo{margin-top:16px;padding:12px 14px;border:1px solid var(--accent);border-radius:12px;background:#15263a}
 #saveInfo b{display:block;font-size:15px;margin-bottom:8px}
+#saveInfo.ok{border-color:#2e9e5b;background:#12301f}
+#saveInfo.ok b{color:#5fd68f}
+#saveInfo.ok .sbar{display:none}
 #saveInfo small{display:block;color:#9aa0aa;font-size:12px;margin-top:6px}
 #saveInfo .sbar{height:8px;background:#2c2f36;border-radius:4px;overflow:hidden}
 #saveInfo .sbar>i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
@@ -416,7 +419,63 @@ function compact(f32, min, max) {
   return f32;
 }
 
-async function decodeFile(buf, name) {
+// Polish letters stored as UTF-8 but read as Latin-1 ("gÅowy" -> "głowy")
+function fixText(t) {
+  t = String(t == null ? "" : t);
+  if (!/[\u00c2-\u00c5][\u0080-\u00bf]/.test(t)) return t;
+  try { return decodeURIComponent(escape(t)); } catch (e) { return t; }
+}
+function parseDicom(buf) {
+  if (typeof daikon === "undefined" || !daikon.Series) throw new Error("DICOM decoder failed to load");
+  let image;
+  try { image = daikon.Series.parseImage(new DataView(buf)); } catch (e) { throw new Error("not a readable DICOM file"); }
+  if (!image) throw new Error("not a DICOM file");
+  if (!image.hasPixelData()) throw new Error("no image in file");
+  const photo = String(image.getPhotometricInterpretation() || "").trim().toUpperCase();
+  if (photo === "MONOCHROME1") image.getPhotometricInterpretation = () => "MONOCHROME2";
+  return image;
+}
+// Pixels of one image, read when it is shown (the file comes from the device's storage via sw.js).
+async function decodePixels(buf, im) {
+  const image = parseDicom(buf);
+  const ts = String(image.getTransferSyntax() || "");
+  const isBaseline = ts.startsWith("1.2.840.10008.1.2.4.50") || ts.startsWith("1.2.840.10008.1.2.4.51");
+  try {
+    const r = im.frames > 1 ? image.getInterpretedData(false, true, im.frame) : image.getInterpretedData(false, true);
+    return { data: im.spp === 1 ? compact(r.data, r.min, r.max) : r.data, min: r.min, max: r.max };
+  } catch (e) {
+    if (!isBaseline) throw new Error("can't decode image (" + (ts || "unknown format") + "): " + (e.message || e));
+    let blobs;
+    try { blobs = image.getJpegs().map(b => new Blob([b], { type: "image/jpeg" })); } catch (e2) { blobs = null; }
+    if (!blobs || !blobs.length) blobs = extractJpegFrames(buf);
+    if (!blobs[im.frame]) throw new Error("no JPEG data found");
+    const r = await decodeJpegBlob(blobs[im.frame], im.cols, im.rows, im.spp);
+    return { data: r.data, cols: r.cols, rows: r.rows, min: r.min, max: r.max, planar: false };
+  }
+}
+const loaded = []; // images whose pixels are in memory, oldest first
+const MAX_LOADED = 150;
+function ensurePixels(im) {
+  if (!im || im.data) return Promise.resolve(im);
+  if (im._p) return im._p;
+  im._p = (async () => {
+    try {
+      const buf = await storeFetch(fileUrl(S.scan, im.path), "open " + im.name, true);
+      Object.assign(im, await decodePixels(buf, im));
+      loaded.push(im);
+      const keep = new Set(panelImages());
+      for (let i = 0; loaded.length > MAX_LOADED && i < loaded.length;) {
+        if (keep.has(loaded[i])) { i++; continue; }
+        loaded.splice(i, 1)[0].data = null;
+      }
+    } catch (e) { im.err = e.message || String(e); }
+    im._p = null;
+    return im;
+  })();
+  return im._p;
+}
+// Image details only (no pixels): enough to sort into series and label everything.
+async function metaFromFile(buf, name, path) {
   if (typeof daikon === "undefined" || !daikon.Series) throw new Error("DICOM decoder failed to load");
   let image;
   try { image = daikon.Series.parseImage(new DataView(buf)); } catch (e) { throw new Error("not a readable DICOM file"); }
@@ -435,7 +494,7 @@ async function decodeFile(buf, name) {
   const base = {
     name, cols, rows, spp,
     uid: image.getSeriesInstanceUID() || ("nouid-" + (image.getSeriesNumber() || 0) + "-" + (image.getSeriesDescription() || "")),
-    sdesc: (image.getSeriesDescription() || "").toString().trim(),
+    sdesc: fixText(image.getSeriesDescription() || "").trim(),
     snum: num(image.getSeriesNumber(), 0),
     inst: num(image.getImageNumber(), 0),
     sloc: num(image.getSliceLocation(), null),
@@ -448,34 +507,14 @@ async function decodeFile(buf, name) {
     mod: String(image.getModality() || "").trim().toUpperCase(),
     stime: fmtTime(tagText(image, 0x0008, 0x0030)),
     atime: fmtTime(tagText(image, 0x0008, 0x0032)),
-    study: String(tagText(image, 0x0008, 0x1030)).trim(),
+    study: fixText(tagText(image, 0x0008, 0x1030)).trim(),
     thick: num(image.getSliceThickness(), null),
     orient: orientLabels(image.getImageDirections && image.getImageDirections()),
     planar: spp === 3 && image.getPlanarConfig && image.getPlanarConfig() === 1,
+    path, frames, min: null, max: null,
   };
-  const ts = String(image.getTransferSyntax() || "");
-  const isBaseline = ts.startsWith("1.2.840.10008.1.2.4.50") || ts.startsWith("1.2.840.10008.1.2.4.51");
-  const out = [];
-  try {
-    for (let f = 0; f < frames; f++) {
-      const r = frames > 1 ? image.getInterpretedData(false, true, f) : image.getInterpretedData(false, true);
-      const px = spp === 1 ? compact(r.data, r.min, r.max) : r.data;
-      out.push(Object.assign({}, base, { frame: f, data: px, min: r.min, max: r.max }));
-    }
-  } catch (e) {
-    if (!isBaseline) throw new Error("can't decode image (" + (ts || "unknown format") + "): " + (e.message || e));
-    let blobs;
-    try { blobs = image.getJpegs().map(b => new Blob([b], { type: "image/jpeg" })); } catch (e2) { blobs = null; }
-    if (!blobs || !blobs.length) blobs = extractJpegFrames(buf);
-    if (!blobs.length) throw new Error("no JPEG data found");
-    for (let f = 0; f < blobs.length; f++) {
-      const r = await decodeJpegBlob(blobs[f], cols, rows, spp);
-      out.push(Object.assign({}, base, { frame: f, data: r.data, cols: r.cols, rows: r.rows, min: r.min, max: r.max, planar: false }));
-    }
-  }
-  return out;
+  return Array.from({ length: frames }, (_, f) => Object.assign({}, base, { frame: f }));
 }
-
 /* ================= series management ================= */
 function cmpImages(a, b) {
   return (a.inst - b.inst) || ((a.sloc ?? 0) - (b.sloc ?? 0)) || (a.frame - b.frame) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
@@ -543,6 +582,7 @@ function drawThumb(canvas, im, s) {
   const ctx = canvas.getContext("2d");
   ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
   if (!im) return;
+  if (!im.data) { if (!im.err) ensurePixels(im).then(() => { if (im.data) drawThumb(canvas, im, s); }); return; }
   const wl = (s && s.wl) || defaultWL(im);
   const src = imageCanvas(im, wl.c, wl.w, false);
   const iw = im.cols, ih = im.rows * im.aspect;
@@ -555,6 +595,7 @@ function drawThumb(canvas, im, s) {
 /* ================= rendering ================= */
 function defaultWL(im) {
   if (im.ww != null && im.ww > 1 && im.wc != null) return { c: im.wc, w: im.ww };
+  if (im.min == null) return { c: 0, w: 1 };
   const w = Math.max(1, im.max - im.min);
   return { c: im.min + w / 2, w };
 }
@@ -659,6 +700,12 @@ function drawNow() {
   const wl = curWL();
   panels().forEach((p, i) => {
     const im = ims[i]; if (!im) return;
+    if (!im.data) { // pixels not read yet: show a note and draw again when ready
+      ctx.fillStyle = "#9aa0aa"; ctx.font = (15 * dpr) + "px system-ui, sans-serif"; ctx.textAlign = "center";
+      ctx.fillText(im.err ? "Could not open this image" : "Opening image…", p.x + p.w / 2, p.y + p.h / 2); ctx.textAlign = "start";
+      if (!im.err) ensurePixels(im).then(() => draw());
+      return;
+    }
     const src = imageCanvas(im, wl.c, wl.w, S.invert, i === 0);
     const g = geometry(im, p);
     ctx.save(); ctx.beginPath(); ctx.rect(p.x, p.y, p.w, p.h); ctx.clip();
@@ -670,6 +717,9 @@ function drawNow() {
   });
   if (S.dual) { ctx.fillStyle = "#e0413b"; ctx.fillRect(Math.floor(W / 2) - Math.max(1, dpr) / 2, 0, Math.max(1, dpr), H); }
   updateOverlay();
+  // read the next few images ahead so scrolling stays smooth
+  const a = S.cur.images;
+  for (const d of [1, -1, 2, 3, -2, 4, 5]) { const n = a[S.idx + d + (S.dual ? 1 : 0)]; if (n && !n.data && !n.err) ensurePixels(n); }
 }
 // Edge labels from Image Orientation (Patient): patient axes are x = Left, y = Posterior, z = Head.
 function orientLabels(d) {
@@ -801,7 +851,7 @@ stage.addEventListener("pointerdown", e => {
   if (e.button === 2) tool = "contrast"; else if (e.button === 1) tool = "move";
   const wl = curWL(), im = curImage();
   drag = { tool, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, idx: S.idx, acc: 0, wl: { c: wl.c, w: wl.w },
-    range: Math.max(1, im.max - im.min), zoom: S.view.zoom, px: S.view.px, py: S.view.py, moved: false, t: performance.now() };
+    range: Math.max(1, (im.max - im.min) || 1000), zoom: S.view.zoom, px: S.view.px, py: S.view.py, moved: false, t: performance.now() };
   if (tool === "scroll") stopPlay();
 });
 stage.addEventListener("pointermove", e => {
@@ -1039,12 +1089,23 @@ async function start(scan) {
   }
   document.title = scan + " – MRI Viewer";
 
-  // 2) download + decode
+  // 2) image details: from the device if this scan was opened before, otherwise read every file once
+  const cand = []; listScan(list, scan, f => cand.push(f));
+  const metaKey = "/meta/v2/" + encodeURIComponent(scan);
+  try {
+    const mc = await caches.open("scan-meta"); const hit = await mc.match(metaKey);
+    const m = hit && await hit.json();
+    if (m && m.n === cand.length && Array.isArray(m.images) && m.images.length) {
+      addImages(m.images); S.total = S.done = cand.length; S.listing = false;
+      refreshUI(); updateStatus(); S.series.forEach(s => s.thumbDirty = true); renderSeriesList();
+      return;
+    }
+  } catch (e) {}
   const queue = [], retryLater = [];
   let listingDone = false, wake = null;
   const notify = () => { if (wake) { const w = wake; wake = null; w(); } };
   const onFile = f => { queue.push(f); S.total++; updateStatus(); notify(); };
-  let decodeChain = Promise.resolve();
+  let decodeChain = Promise.resolve(), lastYield = performance.now();
   async function worker() {
     for (;;) {
       if (!queue.length) {
@@ -1064,11 +1125,11 @@ async function start(scan) {
       }
       // decode one file at a time on the main thread, yielding between files
       decodeChain = decodeChain.then(async () => {
-        try { const ims = await decodeFile(buf, f.name); addImages(ims); }
+        try { const ims = await metaFromFile(buf, f.name, f.path); addImages(ims); }
         catch (e) { addFailure(f.path, e.message || String(e)); }
         buf = null; S.done++;
         scheduleUI();
-        await nextFrame();
+        if (performance.now() - lastYield > 40) { await nextFrame(); lastYield = performance.now(); }
       });
       await decodeChain;
     }
@@ -1090,6 +1151,12 @@ async function start(scan) {
   }
   // refresh series thumbnails with the middle image now that everything has arrived
   S.series.forEach(s => s.thumbDirty = true); renderSeriesList();
+  if (!S.failed.length && S.images) { // remember the image details so the next opening is instant
+    try {
+      const images = []; S.series.forEach(s => s.images.forEach(im => { const c = Object.assign({}, im); delete c.data; delete c._p; delete c.err; c.min = c.max = null; images.push(c); }));
+      await (await caches.open("scan-meta")).put(metaKey, new Response(JSON.stringify({ n: cand.length, images }), { headers: { "Content-Type": "application/json" } }));
+    } catch (e) {}
+  }
 }
 
 /* ================= boot ================= */

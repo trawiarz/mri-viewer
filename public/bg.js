@@ -16,11 +16,11 @@
     const d = e.data || {}; if (d.type !== "progress") return;
     const box = document.getElementById("saveInfo"); if (!box) return;
     const left = d.total - d.done;
-    box.classList.toggle("hidden", d.finished && !box.dataset.shown);
-    if (!d.finished) box.dataset.shown = "1";
-    box.querySelector("b").textContent = d.finished ? "All scans saved on this device – they open instantly" : "Saving scans to this device: " + d.done + " / " + d.total;
+    box.classList.remove("hidden");
+    box.classList.toggle("ok", !!d.finished);
+    box.querySelector("b").textContent = d.finished ? "✓ Download to this device complete" : "Saving scans to this device: " + d.done + " / " + d.total;
     box.querySelector("i").style.width = (d.total ? d.done / d.total * 100 : 100) + "%";
-    box.querySelector("small").textContent = d.finished ? "" : left + " files left – carries on while you look at the scans";
-    if (d.finished && box.dataset.shown) setTimeout(() => box.classList.add("hidden"), 5000);
+    box.querySelector("small").textContent = d.finished ? "All " + d.total + " files are on this device – MRI, CT, X-ray and documents open instantly"
+      : left + " files left – carries on while you look at the scans";
   });
 })();
