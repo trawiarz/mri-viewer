@@ -11,6 +11,7 @@
   body{background:var(--bg);color:#ddd;font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;display:flex;flex-direction:column}
   header{display:flex;gap:12px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
   header a{color:var(--accent);text-decoration:none}
+  header a.back{color:#fff;background:var(--accent);font-size:17px;font-weight:600;padding:10px 16px;border-radius:10px}
   header b{font-size:15px}
   #files{display:flex;gap:6px;flex-wrap:wrap}
   #files button{background:#0b0c0e;color:inherit;border:1px solid var(--line);border-radius:8px;padding:6px 10px;font:inherit;font-size:13px;cursor:pointer}
@@ -24,13 +25,14 @@
 </head>
 <body>
 <header>
-  <a href="./#docs">&#8592; Records</a>
+  <a class="back" href="./#docs">&#8592; Records</a>
   <b id="title">Documents</b>
   <div id="files"></div>
   <a id="open" href="#" target="_blank" rel="noopener" hidden>Open in new tab</a>
 </header>
 <main><div id="msg">Loading…</div></main>
 <script>
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 const $ = s => document.querySelector(s);
 const id = new URLSearchParams(location.search).get("s") || "";
 const url = p => "files/" + [id].concat(p.split("/")).map(encodeURIComponent).join("/");

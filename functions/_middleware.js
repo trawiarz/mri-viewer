@@ -30,6 +30,8 @@ export async function onRequest({ request, env, next }) {
   if (url.pathname === "/robots.txt")
     return new Response("User-agent: *\nDisallow: /\n", { headers: { "Content-Type": "text/plain", ...NOINDEX } });
 
+  if (url.pathname === "/sw.js") return next(); // the device-storage helper holds no data; browsers fetch it without the password
+
   const secret = await sitePassword(env);
   if (!secret) return new Response("Site locked: no password configured.", { status: 503, headers: { "Cache-Control": "no-store", ...NOINDEX } });
 

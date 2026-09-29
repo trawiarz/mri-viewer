@@ -15,7 +15,7 @@ export async function onRequest({ request, env, params }) {
   obj.writeHttpMetadata(headers);
   headers.set("ETag", obj.httpEtag);
   headers.set("X-Robots-Tag", "noindex, nofollow");
-  headers.set("Cache-Control", key.endsWith("/files.json") ? "private, max-age=60" : "private, max-age=86400");
+  headers.set("Cache-Control", key.endsWith("/files.json") ? "private, max-age=60" : "private, max-age=31536000, immutable");
   if (!headers.has("Content-Type"))
     headers.set("Content-Type", key.endsWith(".json") ? "application/json" : "application/dicom");
 
