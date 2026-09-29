@@ -47,7 +47,7 @@ const item = (it, driveId) => ({
 });
 function okHost(u) { try { const h = new URL(u).hostname; return new URL(u).protocol === "https:" && DL_HOSTS.some(d => h.endsWith(d)); } catch { return false; } }
 
-function dicomInfo(u8) { // a few text tags from the start of a DICOM file (explicit or implicit little endian)
+export function dicomInfo(u8) { // a few text tags from the start of a DICOM file (explicit or implicit little endian)
   const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength), out = {};
   const want = { "00080060": "modality", "00080020": "date", "00080030": "time", "00081030": "desc", "0008103e": "series" };
   const LONG = ["OB", "OW", "OF", "SQ", "UT", "UN", "OD", "OL", "UC", "UR", "OV", "SV", "UV"];

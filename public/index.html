@@ -273,7 +273,7 @@ async function showSetup(errText) {
     items.forEach(e => {
       const a = el("a"); a.href = studyLink(e);
       a.appendChild(el("span", null, e.title || e.id));
-      a.appendChild(el("small", null, [e.date, e.count ? e.count + (e.type === "docs" ? " file(s)" : " files") : ""].filter(Boolean).join(" · ")));
+      a.appendChild(el("small", null, [e.date, e.pending ? "not opened yet – first opening copies it from Google Drive" : e.count ? e.count + (e.type === "docs" ? " file(s)" : " files") : ""].filter(Boolean).join(" · ")));
       box.appendChild(a);
     });
   };

@@ -9,7 +9,12 @@ export async function readLibrary(bucket) {
 }
 
 export async function onRequestGet({ env }) {
-  return new Response(JSON.stringify(await readLibrary(env.BUCKET)), {
+  const lib = await readLibrary(env.BUCKET);
+  try { // CDs registered for import but not copied yet
+    const { results } = await env.DB.prepare("SELECT scan, type, title, date FROM sources").all();
+    for (const r of results) if (!lib.some(e => e.id === r.scan)) lib.push({ id: r.scan, type: r.type, title: r.title, date: r.date || "", count: 0, pending: true });
+  } catch {}
+  return new Response(JSON.stringify(lib), {
     headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
   });
 }

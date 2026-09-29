@@ -50,6 +50,7 @@ async function run() {
   if (res.status === 404) { $("#msg").textContent = "Scan \"" + scan + "\" not found."; return; }
   if (!res.ok) { $("#msg").textContent = "Could not check the scan (HTTP " + res.status + ")."; $("#retry").hidden = false; return; }
   if (st.complete) { $("#msg").textContent = "Ready – opening the viewer…"; return location.replace("./?s=" + encodeURIComponent(scan) + "&noimport=1"); }
+  if (st.kind === "iso") return isoImport(st);
   const total = st.total; let done = 0, next = 0, finished = false; const errors = [];
   const show = () => { $("#msg").textContent = "Copying images to this site (first visit only): " + done + " / " + total; $("#bar i").style.width = (done / total * 100) + "%"; };
   show();
@@ -73,6 +74,59 @@ async function run() {
     $("#err").textContent = "Could not finish: " + JSON.stringify(f.j);
     $("#retry").hidden = false; return;
   }
+  $("#msg").textContent = "Done – opening the viewer…"; $("#bar i").style.width = "100%";
+  await sleep(600); viewer();
+}
+// Import from a CD image (.iso) on Google Drive: walk its folders, keep the DICOM files, copy them one by one.
+const SKIP_DIRS = ["jre", "lib", "bin", "viewer", "autorun", "program files", "java", "tools"];
+const SKIP_EXT = ["exe", "jar", "xml", "dll", "ini", "inf", "bat", "cmd", "sh", "properties", "ico", "gif", "htm", "html", "css", "js", "txt", "pdf", "jpg", "jpeg", "png", "doc", "docx", "zip", "lnk", "url", "cab", "msi", "sys", "dat", "cfg", "manifest", "chm", "hlp", "ttf", "bmp", "so", "class", "json", "log"];
+function extOf(n) { const m = /\.([^.\/]+)$/.exec(n || ""); if (!m) return ""; const e = m[1].toLowerCase(); return /^\d+$/.test(e) ? "" : e; }
+async function iso(op, body) {
+  for (let a = 0; ; a++) {
+    try {
+      const r = await fetch("api/iso?op=" + op, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.assign({ s: scan }, body)) });
+      const j = await r.json().catch(() => ({ error: "HTTP " + r.status }));
+      if (r.ok) return j;
+      if (a >= 3 || r.status === 400 || r.status === 404) throw new Error(j.error || "HTTP " + r.status);
+    } catch (e) { if (a >= 3) throw e; }
+    await sleep(1500 * 2 ** a);
+  }
+}
+async function isoImport(st) {
+  $("#msg").textContent = "Opening the CD image…";
+  const top = await iso("dir", {});
+  const files = [], queue = [{ entries: top.entries, path: [] }];
+  let dirs = 0;
+  while (queue.length) {
+    const { entries, path } = queue.shift();
+    for (const e of entries) {
+      if (e.dir) {
+        if (SKIP_DIRS.includes(e.name.trim().toLowerCase())) continue;
+        dirs++; $("#msg").textContent = "Reading the CD… " + dirs + " folders, " + files.length + " files";
+        const sub = await iso("dir", { lba: e.lba, size: e.size, joliet: top.joliet });
+        queue.push({ entries: sub.entries, path: path.concat(e.name) });
+      } else {
+        const e2 = extOf(e.name);
+        if (e.name.toUpperCase() === "DICOMDIR" || !e.size) continue;
+        if (["dcm", "dicom", "ima"].includes(e2) || (!e2 && !SKIP_EXT.includes(e2))) files.push(Object.assign({ path: path.concat(e.name).map(x => x.replace(/[^\w.\- ]+/g, "_")).join("/") }, e));
+      }
+    }
+  }
+  if (!files.length) throw new Error("No scan images found on this CD (" + dirs + " folders looked at).");
+  let info = {}; try { info = await iso("peek", { lba: files[0].lba, size: files[0].size }); } catch (e) {}
+  const MOD = { CT: "ct", MR: "mri", CR: "xray", DX: "xray", DR: "xray", RG: "xray", XA: "xray", RF: "xray", MG: "xray", PX: "xray" };
+  const type = MOD[(info.modality || "").toUpperCase()] || st.type;
+  const date = st.date || (/^\d{8}$/.test(info.date || "") ? info.date.slice(0, 4) + "-" + info.date.slice(4, 6) + "-" + info.date.slice(6, 8) : "");
+  const title = (info.desc && info.desc.length > 2 ? info.desc : st.title).slice(0, 120);
+  let done = 0, next = 0; const errors = [];
+  const show = () => { $("#msg").textContent = "Copying images from the CD (first visit only): " + done + " / " + files.length; $("#bar i").style.width = (done / files.length * 100) + "%"; };
+  show();
+  const worker = async () => { while (next < files.length) { const f = files[next++]; try { await iso("copy", { path: f.path, lba: f.lba, size: f.size }); } catch (e) { errors.push(f.path + ": " + e.message); } done++; show(); } };
+  await Promise.all([worker(), worker(), worker(), worker()]);
+  if (errors.length) { $("#err").textContent = errors.length + " file(s) failed – press Try again (copied files are kept):\n" + errors.slice(0, 30).join("\n"); $("#retry").hidden = false; return; }
+  const r = await fetch("api/upload?s=" + encodeURIComponent(scan) + "&finish=1", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type, title, date, files: files.map(f => f.path) }) });
+  if (!r.ok) { $("#err").textContent = "Could not finish: " + await r.text(); $("#retry").hidden = false; return; }
   $("#msg").textContent = "Done – opening the viewer…"; $("#bar i").style.width = "100%";
   await sleep(600); viewer();
 }

@@ -37,9 +37,13 @@ export async function onRequest({ request, env }) {
   const url = new URL(request.url);
   const scan = url.searchParams.get("s") || "scan1";
   const { results: files } = await env.DB.prepare("SELECT path, id, size FROM files WHERE scan = ? ORDER BY path").bind(scan).all();
-  if (!files.length) return json({ error: "unknown scan" }, 404);
   const listKey = scan + "/files.json";
   const complete = !!(await env.BUCKET.head(listKey));
+  if (!files.length) { // a CD image (.iso) registered in `sources` is imported by import.html via /api/iso
+    const src = await env.DB.prepare("SELECT scan, type, title, date, kind FROM sources WHERE scan = ?").bind(scan).first();
+    if (!src) return json({ error: "unknown scan" }, 404);
+    return json(Object.assign({}, src, { complete }));
+  }
 
   if (request.method === "GET") {
     const have = await listKeys(env.BUCKET, scan + "/");
