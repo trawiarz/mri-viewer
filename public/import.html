@@ -141,7 +141,7 @@ async function isoImport(st) {
   const show = () => { $("#msg").textContent = "Copying images from the CD (first visit only): " + done + " / " + files.length; $("#bar i").style.width = (done / files.length * 100) + "%"; };
   show();
   const worker = async () => { while (next < files.length) { const f = files[next++]; try { await iso("copy", Object.assign({ path: f.path }, where(f))); } catch (e) { errors.push(f.path + ": " + e.message); } done++; show(); } };
-  await Promise.all([worker(), worker(), worker(), worker()]);
+  await Promise.all(Array.from({ length: 12 }, worker));
   if (errors.length) { $("#err").textContent = errors.length + " file(s) failed – press Try again (copied files are kept):\n" + errors.slice(0, 30).join("\n"); $("#retry").hidden = false; return; }
   const r = await fetch("api/upload?s=" + encodeURIComponent(scan) + "&finish=1", { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ type, title, date, files: files.map(f => f.path) }) });
