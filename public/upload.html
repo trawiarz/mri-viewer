@@ -74,6 +74,7 @@ $("#folderBtn").onclick = () => choose($("#folderIn"));
 $("#filesBtn").onclick = () => choose($("#filesIn"));
 $("#type").onchange = refresh;
 $("#date").valueAsDate = new Date();
+{ const t = new URLSearchParams(location.search).get("type"); if (t && [...$("#type").options].some(o => o.value === t)) $("#type").value = t; }
 
 function strip(path) { // drop the chosen folder's own name so paths start inside it
   const p = path.split("/"); return (p.length > 1 && picked.some(f => f.webkitRelativePath) ? p.slice(1) : p)

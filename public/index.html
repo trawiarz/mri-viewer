@@ -38,6 +38,7 @@ button:disabled{opacity:.45;cursor:default}
 .cats button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:16px;border-radius:12px;font-size:15px;text-align:left}
 .cats button b{font-size:19px}.cats button span{font-size:12.5px;color:var(--muted)}
 .cats button.on{border-color:var(--accent);background:#17324d}
+.cats button.empty{opacity:.55}
 #catTitle{font-size:15px;margin:6px 0 8px}
 #studyList a{display:block;padding:11px 12px;margin-bottom:8px;border:1px solid var(--line);border-radius:10px;background:#0b0c0e;color:inherit;text-decoration:none}
 #studyList a:hover{border-color:var(--accent)}
@@ -256,13 +257,19 @@ async function showSetup(errText) {
   let lib = [];
   try { const r = await fetch("api/library", { cache: "no-store" }); if (r.ok) lib = await r.json(); }
   catch (e) { $("#setupErr").textContent = "Could not load the list (" + e.message + ")."; }
-  const pick = type => {
+  const pick = (type, clicked) => {
+    const mine = lib.filter(e => e.type === type);
+    if (clicked && mine.length === 1) { location.href = studyLink(mine[0]); return; } // one study: open it straight away
     location.hash = type;
     $("#cats").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.type === type));
     const items = lib.filter(e => e.type === type).sort((a, b) => String(b.date).localeCompare(String(a.date)));
     $("#catTitle").textContent = CAT[type] || "";
     const box = $("#studyList"); box.innerHTML = "";
-    if (!items.length) box.appendChild(el("p", "note", "Nothing here yet."));
+    if (!items.length) {
+      box.appendChild(el("p", "note", "Nothing uploaded here yet."));
+      const up = el("a", null, "Upload " + (type === "docs" ? "documents" : CAT[type]));
+      up.href = "upload.html?type=" + type; box.appendChild(up);
+    }
     items.forEach(e => {
       const a = el("a"); a.href = studyLink(e);
       a.appendChild(el("span", null, e.title || e.id));
@@ -274,7 +281,8 @@ async function showSetup(errText) {
     const n = lib.filter(e => e.type === b.dataset.type).length;
     const word = b.dataset.type === "docs" ? ["document", "documents"] : ["study", "studies"];
     b.querySelector("span").textContent = n ? n + " " + word[n === 1 ? 0 : 1] : "none yet";
-    b.onclick = () => pick(b.dataset.type);
+    b.classList.toggle("empty", !n);
+    b.onclick = () => pick(b.dataset.type, true);
   });
   pick(CAT[location.hash.slice(1)] ? location.hash.slice(1) : "mri");
 }
