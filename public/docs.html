@@ -48,7 +48,9 @@ function show(p, btn) {
   try {
     const [lib, list] = await Promise.all([
       fetch("api/library", { cache: "no-store" }).then(r => r.json()),
-      fetch(url("files.json"), { cache: "no-store" }).then(r => { if (!r.ok) throw new Error("not found"); return r.json(); }),
+      fetch(url("files.json"), { cache: "no-store" }).then(r => {
+        if (r.status === 404 && !new URLSearchParams(location.search).has("noimport")) { location.replace("import.html?s=" + encodeURIComponent(id)); return new Promise(() => {}); } // first visit: copy from Google Drive
+        if (!r.ok) throw new Error("not found"); return r.json(); }),
     ]);
     const e = lib.find(x => x.id === id);
     if (e) { $("#title").textContent = e.title + (e.date ? " · " + e.date : ""); document.title = e.title; }

@@ -4,6 +4,9 @@
 // POST /api/import?s=scan1&finish=1 -> write <scan>/files.json once every file is present
 // Locked for good once <scan>/files.json exists. The file list (Drive ids) lives in the D1 table `files`.
 
+import { readLibrary } from "./library.js";
+
+const TYPE_OF = p => /\.jpe?g$/i.test(p) ? "image/jpeg" : /\.png$/i.test(p) ? "image/png" : /\.pdf$/i.test(p) ? "application/pdf" : "application/dicom";
 const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" } });
 
 async function listKeys(bucket, prefix) {
@@ -45,10 +48,12 @@ export async function onRequest({ request, env }) {
     return json(Object.assign({}, src, { complete }));
   }
 
+  // optional catalogue entry (type/title/date) for sets other than the original MRI
+  const src = await env.DB.prepare("SELECT type, title, date FROM sources WHERE scan = ?").bind(scan).first().catch(() => null);
   if (request.method === "GET") {
     const have = await listKeys(env.BUCKET, scan + "/");
     const done = files.filter(f => have.get(scan + "/" + f.path) === f.size).length;
-    return json({ scan, total: files.length, done, complete });
+    return json({ scan, total: files.length, done, complete, type: src ? src.type : "mri" });
   }
   if (request.method !== "POST") return json({ error: "method not allowed" }, 405);
   if (complete) return json({ error: "already imported", complete: true }, 409);
@@ -58,6 +63,11 @@ export async function onRequest({ request, env }) {
     const missing = files.filter(f => have.get(scan + "/" + f.path) !== f.size).map(f => f.path);
     if (missing.length) return json({ error: "files missing", missing }, 409);
     await env.BUCKET.put(listKey, JSON.stringify(files.map(f => f.path), null, 1), { httpMetadata: { contentType: "application/json" } });
+    if (src) { // show it on the home page
+      const lib = (await readLibrary(env.BUCKET)).filter(e => e.id !== scan);
+      lib.push({ id: scan, type: src.type, title: src.title || scan, date: src.date || "", count: files.length });
+      await env.BUCKET.put("index.json", JSON.stringify(lib, null, 1), { httpMetadata: { contentType: "application/json" } });
+    }
     return json({ scan, total: files.length, complete: true });
   }
 
@@ -71,6 +81,6 @@ export async function onRequest({ request, env }) {
   try { data = await download(env, f.id); }
   catch (e) { return json({ i, path: f.path, error: e.message }, 502); }
   if (data.length !== f.size) return json({ i, path: f.path, error: "size " + data.length + " != " + f.size }, 502);
-  await env.BUCKET.put(key, data, { httpMetadata: { contentType: "application/dicom" } });
+  await env.BUCKET.put(key, data, { httpMetadata: { contentType: TYPE_OF(f.path) } });
   return json({ i, path: f.path, bytes: data.length });
 }

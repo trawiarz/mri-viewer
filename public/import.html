@@ -29,7 +29,8 @@ const scan = new URLSearchParams(location.search).get("s") || "scan1";
 const api = "api/import?s=" + encodeURIComponent(scan);
 const $ = s => document.querySelector(s);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const viewer = () => location.replace("./?s=" + encodeURIComponent(scan));
+let isDocs = false;
+const viewer = () => location.replace((isDocs ? "docs.html?s=" : "./?s=") + encodeURIComponent(scan));
 
 async function post(q) {
   for (let a = 0; ; a++) {
@@ -49,7 +50,8 @@ async function run() {
   const st = await res.json().catch(() => ({}));
   if (res.status === 404) { $("#msg").textContent = "Scan \"" + scan + "\" not found."; return; }
   if (!res.ok) { $("#msg").textContent = "Could not check the scan (HTTP " + res.status + ")."; $("#retry").hidden = false; return; }
-  if (st.complete) { $("#msg").textContent = "Ready – opening the viewer…"; return location.replace("./?s=" + encodeURIComponent(scan) + "&noimport=1"); }
+  isDocs = st.type === "docs";
+  if (st.complete) { $("#msg").textContent = "Ready – opening…"; return location.replace((isDocs ? "docs.html?s=" : "./?s=") + encodeURIComponent(scan) + "&noimport=1"); }
   if (st.kind === "iso") return isoImport(st);
   const total = st.total; let done = 0, next = 0, finished = false; const errors = [];
   const show = () => { $("#msg").textContent = "Copying images to this site (first visit only): " + done + " / " + total; $("#bar i").style.width = (done / total * 100) + "%"; };
